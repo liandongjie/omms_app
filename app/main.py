@@ -1,15 +1,21 @@
 from fastapi import FastAPI, Depends
+from fastapi.responses import JSONResponse
 import contextlib
 
-from app.routes import test_route
+from app.routes import monitor_overview_route, ops_route, test_route
 
 from app.utils.db import get_db
+
+
+class Utf8JSONResponse(JSONResponse):
+    media_type = "application/json; charset=utf-8"
 
 
 # 创建 FastAPI 应用实例
 app = FastAPI(
     title="omms_app",
     description="运营维护应用",
+    default_response_class=Utf8JSONResponse,
     # version=get_settings().VERSION,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -51,5 +57,5 @@ app.router.lifespan_context = lifespan
 
 # 包含路由
 app.include_router(test_route.router, prefix="/api_test", tags=["test"])
-
-
+app.include_router(ops_route.router, prefix="/api/ops", tags=["ops"])
+app.include_router(monitor_overview_route.router, tags=["monitor-overview"])
