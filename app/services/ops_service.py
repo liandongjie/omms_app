@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 from collections import Counter
+from datetime import datetime
 from typing import Iterable
 
 from fastapi import Depends
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.models.ops_model import OpsCfg, OpsLog, OpsState
 from app.schemas.ops_schema import (
     AlarmItem,
@@ -20,13 +22,20 @@ from app.schemas.ops_schema import (
 )
 from app.services.base_service import BaseService
 from app.utils.db import get_db
-from app.utils.ops_parse import is_stale, normalize_percent, parse_dat, today_yyyymmdd
+from app.utils.ops_parse import is_in_work_time, is_stale, normalize_percent, parse_dat, today_yyyymmdd
 
 
 ABNORMAL_STATUSES = {"warning", "error", "offline", "unknown"}
 
 
 class OpsService(BaseService):
+    def __init__(self, db: Session, settings=None):
+        super().__init__(db)
+        self.settings = settings or get_settings()
+
+    def _now(self) -> datetime:
+        return datetime.now()
+
     def get_overview(self, group: str | None = None, only_error: bool = False, date: str | None = None) -> OverviewResponse:
         target_date = date or today_yyyymmdd()
         os_items = self.get_os_states(group=group, only_error=only_error, date=target_date)
@@ -212,48 +221,47 @@ class OpsService(BaseService):
             alarm_count=error_count + warn_count,
         )
 
-    @staticmethod
-    def _build_os_item(cfg: OpsCfg, state: OpsState | None) -> OsStateItem:
+    def _build_os_item(self, cfg: OpsCfg, state: OpsState | None) -> OsStateItem:
+        now = self._now()
+        monitoring_now = is_in_work_time(cfg.work_time, now=now)
+
         if state is None:
+            status = "offline" if monitoring_now else "normal"
+            message = "latest os state not found" if monitoring_now else "outside work time; latest os state not found"
             return OsStateItem(
                 machine_tag=cfg.machine_tag,
                 group=cfg.group_name,
-                status="offline",
-                message="未找到最新状态",
+                status=status,
+                message=message,
             )
 
         data = parse_dat(state.dat)
-        if state.dat and not data:
-            return OsStateItem(
-                machine_tag=cfg.machine_tag,
-                group=cfg.group_name,
-                status="unknown",
-                message="状态数据解析失败",
-                update_time=state.update_time,
-            )
-
         cpu = normalize_percent(data.get("cpu"))
         mem = normalize_percent(data.get("mem"))
         disk = normalize_percent(data.get("disk"))
 
-        if is_stale(state.update_time):
+        offline_minutes = self.settings.OPS_OFFLINE_TIMEOUT_MINUTES
+        if monitoring_now and is_stale(state.update_time, minutes=offline_minutes, now=now):
             status = "offline"
-            message = "状态超过3分钟未更新"
+            message = f"os state not updated within {offline_minutes} minutes"
+        elif state.dat and not data:
+            status = "unknown"
+            message = "os state data parse failed"
         elif cpu is None or mem is None or disk is None:
             status = "unknown"
-            message = "状态数据缺失"
-        elif cpu >= 100:
+            message = "os state data missing"
+        elif cpu >= self.settings.OPS_CPU_ALARM_THRESHOLD:
             status = "error"
-            message = f"CPU使用率过高: {cpu:.1f}%"
-        elif mem >= 90:
+            message = f"CPU usage too high: {cpu:.1f}%"
+        elif mem >= self.settings.OPS_MEM_ALARM_THRESHOLD:
             status = "error"
-            message = f"内存使用率过高: {mem:.1f}%"
-        elif disk >= 90:
+            message = f"memory usage too high: {mem:.1f}%"
+        elif disk >= self.settings.OPS_DISK_ALARM_THRESHOLD:
             status = "error"
-            message = f"磁盘使用率过高: {disk:.1f}%"
+            message = f"disk usage too high: {disk:.1f}%"
         else:
             status = "normal"
-            message = "正常"
+            message = "normal"
 
         return OsStateItem(
             machine_tag=cfg.machine_tag,
@@ -274,9 +282,11 @@ class OpsService(BaseService):
             if state.machine_tag != cfg.machine_tag:
                 continue
 
+            if state.type != cfg.type:
+                continue
+
             state_key = state.state_key or ""
-            key_matches = cfg_key in state_key or state_key in cfg_key
-            if not key_matches:
+            if cfg_key not in state_key:
                 continue
 
             if cfg_value and cfg_value not in (state.value or ""):
@@ -285,27 +295,32 @@ class OpsService(BaseService):
             return state
         return None
 
-    @staticmethod
-    def _build_process_item(cfg: OpsCfg, state: OpsState | None) -> ProcessStateItem:
+    def _build_process_item(self, cfg: OpsCfg, state: OpsState | None) -> ProcessStateItem:
+        now = self._now()
+        monitoring_now = is_in_work_time(cfg.work_time, now=now)
+
         if state is None:
+            status = "offline" if monitoring_now else "normal"
+            message = "latest process state not found" if monitoring_now else "outside work time; latest process state not found"
             return ProcessStateItem(
                 machine_tag=cfg.machine_tag,
                 group=cfg.group_name,
                 process_name=cfg.cfg_key,
-                status="offline",
-                message="未找到最新状态",
+                status=status,
+                message=message,
             )
 
+        offline_minutes = self.settings.OPS_OFFLINE_TIMEOUT_MINUTES
         data = parse_dat(state.dat)
-        if state.dat and not data:
-            status = "unknown"
-            message = "进程状态数据解析失败"
-        elif is_stale(state.update_time):
+        if monitoring_now and is_stale(state.update_time, minutes=offline_minutes, now=now):
             status = "offline"
-            message = "进程状态超过3分钟未更新"
+            message = f"process state not updated within {offline_minutes} minutes"
+        elif state.dat and not data:
+            status = "unknown"
+            message = "process state data parse failed"
         else:
             status = "normal"
-            message = "正常"
+            message = "normal"
 
         return ProcessStateItem(
             machine_tag=cfg.machine_tag,
@@ -341,3 +356,4 @@ class OpsService(BaseService):
 
 def get_ops_service(db: Session = Depends(get_db)) -> OpsService:
     return OpsService(db)
+

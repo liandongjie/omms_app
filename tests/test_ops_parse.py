@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from datetime import datetime, timedelta
 
-from app.utils.ops_parse import is_stale, normalize_percent, parse_dat, parse_update_time
+from app.utils.ops_parse import is_in_work_time, is_stale, normalize_percent, parse_dat, parse_update_time
 
 
 def test_parse_dat_supports_json_and_python_dict_string():
@@ -35,3 +35,26 @@ def test_normalize_percent_supports_ratio_and_percent_values():
     assert normalize_percent(95.3) == 95.3
     assert normalize_percent("0.37") == 37
     assert normalize_percent("bad") is None
+
+def test_is_in_work_time_supports_single_range():
+    assert is_in_work_time("09:00:00-23:00:00", now=datetime(2026, 6, 25, 10, 0, 0))
+    assert not is_in_work_time("09:00:00-23:00:00", now=datetime(2026, 6, 25, 8, 59, 59))
+
+
+def test_is_in_work_time_supports_multiple_ranges():
+    work_time = "09:00:00-15:00:00;21:00:00-23:00:00"
+
+    assert is_in_work_time(work_time, now=datetime(2026, 6, 25, 10, 0, 0))
+    assert not is_in_work_time(work_time, now=datetime(2026, 6, 25, 16, 0, 0))
+    assert is_in_work_time(work_time, now=datetime(2026, 6, 25, 22, 0, 0))
+
+
+def test_is_in_work_time_defaults_to_true_for_empty_or_bad_config():
+    now = datetime(2026, 6, 25, 16, 0, 0)
+
+    assert is_in_work_time(None, now=now)
+    assert is_in_work_time("", now=now)
+    assert is_in_work_time("   ", now=now)
+    assert is_in_work_time("bad", now=now)
+    assert is_in_work_time("09:00:00-bad", now=now)
+

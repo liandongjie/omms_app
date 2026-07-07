@@ -18,6 +18,15 @@ class BaseConfig(BaseSettings):
 
     # 日志配置
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
+
+    # Ops monitor thresholds and pagination defaults
+    OPS_OFFLINE_TIMEOUT_MINUTES: int = 3
+    OPS_CPU_ALARM_THRESHOLD: int = 100
+    OPS_MEM_ALARM_THRESHOLD: int = 90
+    OPS_DISK_ALARM_THRESHOLD: int = 90
+    OPS_DEFAULT_PAGE_NO: int = 1
+    OPS_DEFAULT_PAGE_SIZE: int = 10
+    OPS_MAX_PAGE_SIZE: int = 100
     
     class Config:
         env_file = ".env"

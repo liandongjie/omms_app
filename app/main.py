@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends
 from fastapi.responses import JSONResponse
 import contextlib
 
-from app.routes import monitor_overview_route, ops_route, test_route
+from app.routes import monitor_overview_route, test_route
 
 from app.utils.db import get_db
 
@@ -57,5 +57,4 @@ app.router.lifespan_context = lifespan
 
 # 包含路由
 app.include_router(test_route.router, prefix="/api_test", tags=["test"])
-app.include_router(ops_route.router, prefix="/api/ops", tags=["ops"])
 app.include_router(monitor_overview_route.router, tags=["monitor-overview"])
