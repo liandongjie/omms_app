@@ -21,9 +21,9 @@ class BaseConfig(BaseSettings):
 
     # Ops monitor thresholds and pagination defaults
     OPS_OFFLINE_TIMEOUT_MINUTES: int = 3
-    OPS_CPU_ALARM_THRESHOLD: int = 100
-    OPS_MEM_ALARM_THRESHOLD: int = 90
-    OPS_DISK_ALARM_THRESHOLD: int = 90
+    OPS_CPU_ALARM_THRESHOLD: float = 1
+    OPS_MEM_ALARM_THRESHOLD: float = 0.9
+    OPS_DISK_ALARM_THRESHOLD: float = 0.9
     OPS_DEFAULT_PAGE_NO: int = 1
     OPS_DEFAULT_PAGE_SIZE: int = 10
     OPS_MAX_PAGE_SIZE: int = 100

@@ -92,19 +92,14 @@ def is_in_work_time(work_time: str | None, now: datetime | None = None) -> bool:
     return False
 
 
-def normalize_percent(value: Any) -> float | None:
+def parse_metric_value(value: Any) -> float | None:
     if value is None:
         return None
 
     try:
-        number = float(value)
+        return float(value)
     except (TypeError, ValueError):
         return None
-
-    # Historical ops_state data may store percent values as 0-1 ratios.
-    if 0 <= number <= 1:
-        return number * 100
-    return number
 
 
 def today_yyyymmdd(now: datetime | None = None) -> str:

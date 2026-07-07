@@ -47,9 +47,9 @@ class FakeOverviewOpsService:
             OsStateItem(
                 machine_tag="machine-normal",
                 group="algo00x",
-                cpu_usage=65,
-                memory_usage=86,
-                disk_usage=72,
+                cpu_usage=0.65,
+                memory_usage=0.86,
+                disk_usage=0.72,
                 update_time="2026-07-02 16:20:30",
                 status="normal",
                 message="ok",
@@ -57,9 +57,9 @@ class FakeOverviewOpsService:
             OsStateItem(
                 machine_tag="machine-offline",
                 group="op",
-                cpu_usage=10,
-                memory_usage=20,
-                disk_usage=30,
+                cpu_usage=0.1,
+                memory_usage=0.2,
+                disk_usage=0.3,
                 update_time="2026-07-02 16:10:30",
                 status="offline",
                 message="offline",
@@ -98,9 +98,9 @@ def test_overview_os_list_uses_defaults_and_returns_page_shape():
         "details": [
             {
                 "machine_tag": "machine-normal",
-                "cpu_usage": 65.0,
-                "mem_usage": 86.0,
-                "disk_usage": 72.0,
+                "cpu_usage": 0.65,
+                "mem_usage": 0.86,
+                "disk_usage": 0.72,
                 "update_time": "2026-07-02 16:20:30",
                 "is_offline": 0,
                 "is_alarm": 0,
