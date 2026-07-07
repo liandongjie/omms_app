@@ -22,7 +22,7 @@ from app.schemas.ops_schema import (
 )
 from app.services.base_service import BaseService
 from app.utils.db import get_db
-from app.utils.ops_parse import is_in_work_time, is_stale, normalize_percent, parse_dat, today_yyyymmdd
+from app.utils.ops_parse import is_in_work_time, is_stale, parse_dat, parse_metric_value, today_yyyymmdd
 
 
 ABNORMAL_STATUSES = {"warning", "error", "offline", "unknown"}
@@ -236,9 +236,9 @@ class OpsService(BaseService):
             )
 
         data = parse_dat(state.dat)
-        cpu = normalize_percent(data.get("cpu"))
-        mem = normalize_percent(data.get("mem"))
-        disk = normalize_percent(data.get("disk"))
+        cpu = parse_metric_value(data.get("cpu"))
+        mem = parse_metric_value(data.get("mem"))
+        disk = parse_metric_value(data.get("disk"))
 
         offline_minutes = self.settings.OPS_OFFLINE_TIMEOUT_MINUTES
         if monitoring_now and is_stale(state.update_time, minutes=offline_minutes, now=now):
@@ -252,13 +252,13 @@ class OpsService(BaseService):
             message = "os state data missing"
         elif cpu >= self.settings.OPS_CPU_ALARM_THRESHOLD:
             status = "error"
-            message = f"CPU usage too high: {cpu:.1f}%"
+            message = f"CPU usage too high: {cpu:g}"
         elif mem >= self.settings.OPS_MEM_ALARM_THRESHOLD:
             status = "error"
-            message = f"memory usage too high: {mem:.1f}%"
+            message = f"memory usage too high: {mem:g}"
         elif disk >= self.settings.OPS_DISK_ALARM_THRESHOLD:
             status = "error"
-            message = f"disk usage too high: {disk:.1f}%"
+            message = f"disk usage too high: {disk:g}"
         else:
             status = "normal"
             message = "normal"

@@ -13,9 +13,9 @@ FIXED_NOW = datetime(2026, 6, 25, 16, 0, 0)
 def fake_settings(**overrides):
     values = {
         "OPS_OFFLINE_TIMEOUT_MINUTES": 3,
-        "OPS_CPU_ALARM_THRESHOLD": 100,
-        "OPS_MEM_ALARM_THRESHOLD": 90,
-        "OPS_DISK_ALARM_THRESHOLD": 90,
+        "OPS_CPU_ALARM_THRESHOLD": 1,
+        "OPS_MEM_ALARM_THRESHOLD": 0.9,
+        "OPS_DISK_ALARM_THRESHOLD": 0.9,
         "OPS_DEFAULT_PAGE_NO": 1,
         "OPS_DEFAULT_PAGE_SIZE": 10,
         "OPS_MAX_PAGE_SIZE": 100,
@@ -88,41 +88,64 @@ def test_os_normal():
     item = service.get_os_states(date="20260625")[0]
 
     assert item.status == "normal"
-    assert item.cpu_usage == 20
-    assert item.memory_usage == 30
-    assert item.disk_usage == 40
+    assert item.cpu_usage == 0.2
+    assert item.memory_usage == 0.3
+    assert item.disk_usage == 0.4
 
 
 def test_os_cpu_mem_disk_thresholds():
     base_cfg = cfg()
 
-    assert FakeOpsService([base_cfg], [state(dat='{"cpu": 100, "mem": 20, "disk": 20}')]).get_os_states(date="20260625")[0].status == "error"
-    assert FakeOpsService([base_cfg], [state(dat='{"cpu": 20, "mem": 90, "disk": 20}')]).get_os_states(date="20260625")[0].status == "error"
-    assert FakeOpsService([base_cfg], [state(dat='{"cpu": 20, "mem": 20, "disk": 0.953}')]).get_os_states(date="20260625")[0].status == "error"
+    assert FakeOpsService([base_cfg], [state(dat='{"cpu": 1, "mem": 0.2, "disk": 0.2}')]).get_os_states(date="20260625")[0].status == "error"
+    assert FakeOpsService([base_cfg], [state(dat='{"cpu": 0.2, "mem": 0.9, "disk": 0.2}')]).get_os_states(date="20260625")[0].status == "error"
+    assert FakeOpsService([base_cfg], [state(dat='{"cpu": 0.2, "mem": 0.2, "disk": 0.953}')]).get_os_states(date="20260625")[0].status == "error"
 
+
+def test_os_decimal_metric_values_are_not_scaled_and_disk_threshold_alarms():
+    item = FakeOpsService(
+        [cfg(machine_tag="lk_cta_2510")],
+        [state(machine_tag="lk_cta_2510", dat='{"cpu": 0.001, "mem": 0.088, "disk": 0.908}')],
+    ).get_os_states(date="20260625")[0]
+
+    assert item.cpu_usage == 0.001
+    assert item.memory_usage == 0.088
+    assert item.disk_usage == 0.908
+    assert item.status == "error"
+
+
+def test_os_decimal_metric_values_under_threshold_are_normal():
+    item = FakeOpsService(
+        [cfg(machine_tag="lk_cta_2510")],
+        [state(machine_tag="lk_cta_2510", dat='{"cpu": 0.001, "mem": 0.088, "disk": 0.808}')],
+    ).get_os_states(date="20260625")[0]
+
+    assert item.cpu_usage == 0.001
+    assert item.memory_usage == 0.088
+    assert item.disk_usage == 0.808
+    assert item.status == "normal"
 
 def test_os_thresholds_use_settings():
     base_cfg = cfg()
 
     assert FakeOpsService(
         [base_cfg],
-        [state(dat='{"cpu": 85, "mem": 20, "disk": 20}')],
-        settings=fake_settings(OPS_CPU_ALARM_THRESHOLD=80),
+        [state(dat='{"cpu": 0.85, "mem": 0.2, "disk": 0.2}')],
+        settings=fake_settings(OPS_CPU_ALARM_THRESHOLD=0.8),
     ).get_os_states(date="20260625")[0].status == "error"
     assert FakeOpsService(
         [base_cfg],
-        [state(dat='{"cpu": 85, "mem": 20, "disk": 20}')],
-        settings=fake_settings(OPS_CPU_ALARM_THRESHOLD=90),
+        [state(dat='{"cpu": 0.85, "mem": 0.2, "disk": 0.2}')],
+        settings=fake_settings(OPS_CPU_ALARM_THRESHOLD=0.9),
     ).get_os_states(date="20260625")[0].status == "normal"
     assert FakeOpsService(
         [base_cfg],
-        [state(dat='{"cpu": 20, "mem": 75, "disk": 20}')],
-        settings=fake_settings(OPS_MEM_ALARM_THRESHOLD=70),
+        [state(dat='{"cpu": 0.2, "mem": 0.75, "disk": 0.2}')],
+        settings=fake_settings(OPS_MEM_ALARM_THRESHOLD=0.7),
     ).get_os_states(date="20260625")[0].status == "error"
     assert FakeOpsService(
         [base_cfg],
-        [state(dat='{"cpu": 20, "mem": 20, "disk": 75}')],
-        settings=fake_settings(OPS_DISK_ALARM_THRESHOLD=70),
+        [state(dat='{"cpu": 0.2, "mem": 0.2, "disk": 0.75}')],
+        settings=fake_settings(OPS_DISK_ALARM_THRESHOLD=0.7),
     ).get_os_states(date="20260625")[0].status == "error"
 
 
@@ -156,13 +179,13 @@ def test_os_stale_state_is_offline_only_inside_work_time():
     ).get_os_states(date="20260625")[0]
 
     assert inside.status == "offline"
-    assert inside.cpu_usage == 10
-    assert inside.memory_usage == 10
-    assert inside.disk_usage == 10
+    assert inside.cpu_usage == 0.1
+    assert inside.memory_usage == 0.1
+    assert inside.disk_usage == 0.1
     assert outside.status == "normal"
-    assert outside.cpu_usage == 10
-    assert outside.memory_usage == 10
-    assert outside.disk_usage == 10
+    assert outside.cpu_usage == 0.1
+    assert outside.memory_usage == 0.1
+    assert outside.disk_usage == 0.1
 
 
 def test_os_stale_state_keeps_last_reported_usage_values():
@@ -180,9 +203,9 @@ def test_os_stale_state_keeps_last_reported_usage_values():
     ).get_os_states(date="20260625")[0]
 
     assert item.machine_tag == "lk_cta_2510"
-    assert item.cpu_usage == 0.2
-    assert item.memory_usage == 36.9
-    assert item.disk_usage == 88.9
+    assert item.cpu_usage == 0.002
+    assert item.memory_usage == 0.369
+    assert item.disk_usage == 0.889
     assert item.update_time == "20260706 14:59:10"
     assert item.status == "offline"
 
@@ -330,6 +353,23 @@ def test_process_overview_counts_stale_alarm_only_inside_work_time():
     assert outside.process.abnormal_count == 0
 
 
+def test_overview_counts_missing_state_and_decimal_disk_alarm():
+    service = FakeOpsService(
+        cfgs=[
+            cfg(machine_tag="missing", work_time="09:00:00-23:00:00"),
+            cfg(machine_tag="disk-alarm", work_time="09:00:00-23:00:00"),
+        ],
+        states=[
+            state(machine_tag="disk-alarm", dat='{"cpu": 0.001, "mem": 0.088, "disk": 0.908}'),
+        ],
+    )
+
+    overview = service.get_overview(date="20260625")
+
+    assert overview.os.total == 2
+    assert overview.os.alarm_count == 2
+    assert overview.os.abnormal_count == 2
+
 def test_group_and_only_error_filters():
     service = FakeOpsService(
         cfgs=[
@@ -337,8 +377,8 @@ def test_group_and_only_error_filters():
             cfg(machine_tag="error", group_name="op"),
         ],
         states=[
-            state(machine_tag="normal", dat='{"cpu": 10, "mem": 10, "disk": 10}'),
-            state(machine_tag="error", dat='{"cpu": 10, "mem": 95, "disk": 10}'),
+            state(machine_tag="normal", dat='{"cpu": 0.1, "mem": 0.1, "disk": 0.1}'),
+            state(machine_tag="error", dat='{"cpu": 0.1, "mem": 0.95, "disk": 0.1}'),
         ],
     )
 

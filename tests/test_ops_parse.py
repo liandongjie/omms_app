@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from datetime import datetime, timedelta
 
-from app.utils.ops_parse import is_in_work_time, is_stale, normalize_percent, parse_dat, parse_update_time
+from app.utils.ops_parse import is_in_work_time, is_stale, parse_dat, parse_metric_value, parse_update_time
 
 
 def test_parse_dat_supports_json_and_python_dict_string():
@@ -30,11 +30,12 @@ def test_is_stale_uses_three_minute_default():
     assert is_stale(None, now=now)
 
 
-def test_normalize_percent_supports_ratio_and_percent_values():
-    assert normalize_percent(0.953) == 95.3
-    assert normalize_percent(95.3) == 95.3
-    assert normalize_percent("0.37") == 37
-    assert normalize_percent("bad") is None
+def test_parse_metric_value_keeps_raw_metric_values():
+    assert parse_metric_value(0.953) == 0.953
+    assert parse_metric_value("0.37") == 0.37
+    assert parse_metric_value(1) == 1.0
+    assert parse_metric_value(90.8) == 90.8
+    assert parse_metric_value("bad") is None
 
 def test_is_in_work_time_supports_single_range():
     assert is_in_work_time("09:00:00-23:00:00", now=datetime(2026, 6, 25, 10, 0, 0))
