@@ -7,13 +7,17 @@ from app.controllers.monitor_overview_controller import (
     MonitorOverviewController,
     get_monitor_overview_controller,
 )
-from app.schemas.monitor_overview_schema import MonitorOverviewOsListRequest
+from app.schemas.monitor_overview_schema import (
+    MonitorOverviewOsListRequest,
+    MonitorOverviewProcessListRequest,
+)
 from app.schemas.ops_schema import (
     OsStateItem,
     OverviewLogStats,
     OverviewOsStats,
     OverviewProcessStats,
     OverviewResponse,
+    ProcessStateItem,
 )
 
 
@@ -32,6 +36,7 @@ class FakeOverviewOpsService:
         self.settings = fake_settings()
         self.overview_calls = []
         self.os_state_calls = []
+        self.process_state_calls = []
 
     def get_overview(self):
         self.overview_calls.append({})
@@ -63,6 +68,47 @@ class FakeOverviewOpsService:
                 update_time="2026-07-02 16:10:30",
                 status="offline",
                 message="offline",
+            ),
+        ]
+        if group:
+            return [item for item in items if item.group == group]
+        return items
+
+    def get_process_states(self, group=None):
+        self.process_state_calls.append({"group": group})
+        items = [
+            ProcessStateItem(
+                machine_tag="machine-b",
+                group="algo00x",
+                process_name="zProcess",
+                pid=141976,
+                cpu=0.116,
+                memory=2097.57,
+                update_time="20260706 23:59:54",
+                status="normal",
+                message="normal",
+            ),
+            ProcessStateItem(
+                machine_tag="machine-c",
+                group="op",
+                process_name="aProcess",
+                pid=2,
+                cpu=0.2,
+                memory=200.5,
+                update_time="20260706 23:50:00",
+                status="offline",
+                message="offline",
+            ),
+            ProcessStateItem(
+                machine_tag="machine-a",
+                group="op",
+                process_name="bProcess",
+                pid=None,
+                cpu=None,
+                memory=None,
+                update_time=None,
+                status="unknown",
+                message="parse failed",
             ),
         ]
         if group:
@@ -134,6 +180,76 @@ def test_overview_os_list_clamps_page_size_to_config():
     assert len(result.details) == 1
 
 
+def test_overview_process_list_uses_defaults_and_returns_page_shape():
+    service = FakeOverviewOpsService()
+    service.settings = fake_settings(OPS_DEFAULT_PAGE_NO=2, OPS_DEFAULT_PAGE_SIZE=1, OPS_MAX_PAGE_SIZE=50)
+    controller = MonitorOverviewController(service)
+
+    result = controller.get_process_list(MonitorOverviewProcessListRequest())
+
+    assert result.model_dump() == {
+        "page_no": 2,
+        "page_size": 1,
+        "total": 3,
+        "details": [
+            {
+                "machine_tag": "machine-a",
+                "process_name": "bProcess",
+                "pid": None,
+                "cpu": None,
+                "mem": None,
+                "update_time": None,
+                "is_offline": 0,
+                "is_alarm": 1,
+            }
+        ],
+    }
+    assert service.process_state_calls == [{"group": None}]
+
+
+def test_overview_process_list_supports_group_and_status_flags():
+    service = FakeOverviewOpsService()
+    controller = MonitorOverviewController(service)
+
+    result = controller.get_process_list(MonitorOverviewProcessListRequest(group="op", page_no=1, page_size=10))
+
+    assert result.total == 2
+    assert [item.machine_tag for item in result.details] == ["machine-c", "machine-a"]
+    assert result.details[0].process_name == "aProcess"
+    assert result.details[0].is_offline == 1
+    assert result.details[0].is_alarm == 1
+    assert result.details[1].is_offline == 0
+    assert result.details[1].is_alarm == 1
+    assert service.process_state_calls == [{"group": "op"}]
+
+
+def test_overview_process_list_maps_raw_pid_cpu_mem_values():
+    service = FakeOverviewOpsService()
+    controller = MonitorOverviewController(service)
+
+    result = controller.get_process_list(
+        MonitorOverviewProcessListRequest(sort_by="machine_tag", sort_order="asc", page_no=1, page_size=10)
+    )
+
+    normal = result.details[1]
+    assert normal.machine_tag == "machine-b"
+    assert normal.process_name == "zProcess"
+    assert normal.pid == 141976
+    assert normal.cpu == 0.116
+    assert normal.mem == 2097.57
+    assert normal.is_offline == 0
+    assert normal.is_alarm == 0
+
+
+def test_overview_process_list_default_sort_puts_alarm_and_offline_first():
+    service = FakeOverviewOpsService()
+    controller = MonitorOverviewController(service)
+
+    result = controller.get_process_list(MonitorOverviewProcessListRequest(page_no=1, page_size=10))
+
+    assert [item.machine_tag for item in result.details] == ["machine-c", "machine-a", "machine-b"]
+
+
 def test_monitor_overview_routes_are_registered_without_legacy_ops_routes():
     from app.main import app
 
@@ -141,6 +257,7 @@ def test_monitor_overview_routes_are_registered_without_legacy_ops_routes():
 
     assert "/api_omms/monitor/overview/total" in paths
     assert "/api_omms/monitor/overview/os/list" in paths
+    assert "/api_omms/monitor/overview/process/list" in paths
     assert not any(path.startswith("/api/ops") for path in paths)
 
 
@@ -154,6 +271,8 @@ def test_monitor_overview_openapi_matches_current_routes():
     assert "get" in paths["/api_omms/monitor/overview/total"]
     assert "/api_omms/monitor/overview/os/list" in paths
     assert "post" in paths["/api_omms/monitor/overview/os/list"]
+    assert "/api_omms/monitor/overview/process/list" in paths
+    assert "post" in paths["/api_omms/monitor/overview/process/list"]
     assert not any(path.startswith("/api/ops") for path in paths)
 
 
@@ -196,9 +315,35 @@ def test_monitor_overview_os_list_route_accepts_empty_body_and_declares_utf8_cha
     assert response.json()["data"] == {"page_no": 1, "page_size": 10, "total": 0, "details": []}
 
 
+def test_monitor_overview_process_list_route_accepts_empty_body_and_declares_utf8_charset():
+    from app.main import app
+
+    class FakeController:
+        def get_process_list(self, request=None):
+            return {"page_no": 1, "page_size": 10, "total": 0, "details": []}
+
+    app.dependency_overrides[get_monitor_overview_controller] = lambda: FakeController()
+    try:
+        response = TestClient(app).post("/api_omms/monitor/overview/process/list")
+    finally:
+        app.dependency_overrides.pop(get_monitor_overview_controller, None)
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/json; charset=utf-8"
+    assert response.json()["data"] == {"page_no": 1, "page_size": 10, "total": 0, "details": []}
+
+
 def test_monitor_overview_os_list_rejects_gropy_typo():
     from app.main import app
 
     response = TestClient(app).post("/api_omms/monitor/overview/os/list", json={"gropy": "op"})
+
+    assert response.status_code == 422
+
+
+def test_monitor_overview_process_list_rejects_gropy_typo():
+    from app.main import app
+
+    response = TestClient(app).post("/api_omms/monitor/overview/process/list", json={"gropy": "op"})
 
     assert response.status_code == 422

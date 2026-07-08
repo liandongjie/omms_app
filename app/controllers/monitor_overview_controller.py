@@ -8,6 +8,9 @@ from app.schemas.monitor_overview_schema import (
     MonitorOverviewOsItem,
     MonitorOverviewOsListRequest,
     MonitorOverviewOsListResponse,
+    MonitorOverviewProcessItem,
+    MonitorOverviewProcessListRequest,
+    MonitorOverviewProcessListResponse,
     MonitorOverviewTotalResponse,
 )
 from app.services.ops_service import ABNORMAL_STATUSES, OpsService, get_ops_service
@@ -18,6 +21,16 @@ OS_SORT_FIELDS = {
     "cpu_usage",
     "mem_usage",
     "disk_usage",
+    "update_time",
+    "is_offline",
+    "is_alarm",
+}
+PROCESS_SORT_FIELDS = {
+    "machine_tag",
+    "process_name",
+    "pid",
+    "cpu",
+    "mem",
     "update_time",
     "is_offline",
     "is_alarm",
@@ -80,6 +93,31 @@ class MonitorOverviewController(BaseController):
             details=items[start:end],
         )
 
+    def get_process_list(
+        self,
+        request: MonitorOverviewProcessListRequest | None = None,
+    ) -> MonitorOverviewProcessListResponse:
+        request = request or MonitorOverviewProcessListRequest()
+        page_no = self._normalize_page_no(request.page_no)
+        page_size = self._normalize_page_size(request.page_size)
+        group = normalize_monitor_group(request.group)
+
+        items = [
+            self._to_monitor_process_item(item)
+            for item in self.ops_service.get_process_states(group=group)
+        ]
+        items = self._sort_process_items(items, request.sort_by or "", request.sort_order or "")
+
+        total = len(items)
+        start = (page_no - 1) * page_size
+        end = start + page_size
+        return MonitorOverviewProcessListResponse(
+            page_no=page_no,
+            page_size=page_size,
+            total=total,
+            details=items[start:end],
+        )
+
     def _normalize_page_no(self, page_no: int | None) -> int:
         default_page_no = self.settings.OPS_DEFAULT_PAGE_NO
         return max(int(page_no or default_page_no), 1)
@@ -102,6 +140,19 @@ class MonitorOverviewController(BaseController):
         )
 
     @staticmethod
+    def _to_monitor_process_item(item) -> MonitorOverviewProcessItem:
+        return MonitorOverviewProcessItem(
+            machine_tag=item.machine_tag,
+            process_name=item.process_name,
+            pid=item.pid,
+            cpu=item.cpu,
+            mem=item.memory,
+            update_time=item.update_time,
+            is_offline=1 if item.status == "offline" else 0,
+            is_alarm=1 if item.status in ABNORMAL_STATUSES else 0,
+        )
+
+    @staticmethod
     def _sort_os_items(
         items: list[MonitorOverviewOsItem],
         sort_by: str,
@@ -111,6 +162,28 @@ class MonitorOverviewController(BaseController):
             return sorted(items, key=lambda item: (-item.is_alarm, -item.is_offline, item.machine_tag))
 
         if sort_by not in OS_SORT_FIELDS:
+            raise ValueError(f"unsupported sort_by: {sort_by}")
+
+        reverse = sort_order == "desc"
+        return sorted(
+            items,
+            key=lambda item: (getattr(item, sort_by) is None, getattr(item, sort_by)),
+            reverse=reverse,
+        )
+
+    @staticmethod
+    def _sort_process_items(
+        items: list[MonitorOverviewProcessItem],
+        sort_by: str,
+        sort_order: str,
+    ) -> list[MonitorOverviewProcessItem]:
+        if not sort_by:
+            return sorted(
+                items,
+                key=lambda item: (-item.is_alarm, -item.is_offline, item.machine_tag, item.process_name),
+            )
+
+        if sort_by not in PROCESS_SORT_FIELDS:
             raise ValueError(f"unsupported sort_by: {sort_by}")
 
         reverse = sort_order == "desc"
