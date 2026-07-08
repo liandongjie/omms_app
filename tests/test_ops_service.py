@@ -240,9 +240,14 @@ def test_process_normal_missing_and_stale():
     item = FakeOpsService([process_cfg], [fresh_state]).get_process_states(date="20260625")[0]
     assert item.status == "normal"
     assert item.pid == 103833
+    assert item.cpu == 0.109
+    assert item.memory == 2100.254
 
     item = FakeOpsService([process_cfg], []).get_process_states(date="20260625")[0]
     assert item.status == "offline"
+    assert item.pid is None
+    assert item.cpu is None
+    assert item.memory is None
 
     stale_state = state(
         state_type="process",
@@ -255,6 +260,22 @@ def test_process_normal_missing_and_stale():
     assert item.status == "offline"
     assert item.pid == 103833
 
+
+
+def test_process_memory_field_can_use_memory_alias():
+    process_cfg = cfg(cfg_type="process", cfg_key="tlBinTradeLite", value="sys_simnow.yaml")
+    row = state(
+        state_type="process",
+        state_key="./bin/tlBinTradeLite",
+        value="['sys_simnow.yaml']",
+        dat="{'pid': 103833, 'cpu': 0.116, 'memory': 2097.57}",
+    )
+
+    item = FakeOpsService([process_cfg], [row]).get_process_states(date="20260625")[0]
+
+    assert item.pid == 103833
+    assert item.cpu == 0.116
+    assert item.memory == 2097.57
 
 def test_process_stale_state_is_offline_only_inside_work_time():
     row = state(
