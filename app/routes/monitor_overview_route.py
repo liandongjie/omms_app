@@ -9,6 +9,7 @@ from app.controllers.monitor_overview_controller import (
 )
 from app.schemas.common import ErrorResponseModel, ResponseModel
 from app.schemas.monitor_overview_schema import (
+    MonitorOverviewLogListRequest,
     MonitorOverviewOsListRequest,
     MonitorOverviewProcessListRequest,
 )
@@ -46,6 +47,18 @@ def post_monitor_overview_process_list(
 ):
     try:
         return ResponseModel(data=controller.get_process_list(request), msg="success")
+    except Exception as e:
+        traceback.print_exc()
+        return ErrorResponseModel(msg=str(e))
+
+
+@router.post("/api_omms/monitor/overview/log/list", response_model=ResponseModel)
+def post_monitor_overview_log_list(
+    request: MonitorOverviewLogListRequest | None = Body(default=None),
+    controller: MonitorOverviewController = Depends(get_monitor_overview_controller),
+):
+    try:
+        return ResponseModel(data=controller.get_log_list(request), msg="success")
     except Exception as e:
         traceback.print_exc()
         return ErrorResponseModel(msg=str(e))
