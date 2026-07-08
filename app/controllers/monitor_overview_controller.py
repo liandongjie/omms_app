@@ -5,6 +5,9 @@ from app.config import get_settings
 from app.controllers.base_controller import BaseController
 from app.schemas.monitor_overview_schema import (
     MonitorOverviewCard,
+    MonitorOverviewLogItem,
+    MonitorOverviewLogListRequest,
+    MonitorOverviewLogListResponse,
     MonitorOverviewOsItem,
     MonitorOverviewOsListRequest,
     MonitorOverviewOsListResponse,
@@ -35,6 +38,7 @@ PROCESS_SORT_FIELDS = {
     "is_offline",
     "is_alarm",
 }
+LOG_ALARM_LEVELS = {"warn", "error"}
 
 
 def normalize_monitor_group(group: str | None) -> str | None:
@@ -44,6 +48,13 @@ def normalize_monitor_group(group: str | None) -> str | None:
     if not normalized or normalized.lower() == "all":
         return None
     return normalized
+
+
+def normalize_optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
 
 
 class MonitorOverviewController(BaseController):
@@ -118,6 +129,33 @@ class MonitorOverviewController(BaseController):
             details=items[start:end],
         )
 
+    def get_log_list(
+        self,
+        request: MonitorOverviewLogListRequest | None = None,
+    ) -> MonitorOverviewLogListResponse:
+        request = request or MonitorOverviewLogListRequest()
+        page_no = self._normalize_page_no(request.page_no)
+        page_size = self._normalize_page_size(request.page_size)
+        group = normalize_monitor_group(request.group)
+        date = normalize_optional_text(request.date)
+
+        page = self.ops_service.get_logs(
+            group=group,
+            level=request.level or None,
+            date=date,
+            page=page_no,
+            page_size=page_size,
+            only_error=bool(request.only_error),
+            sort_by=request.sort_by or "",
+            sort_order=request.sort_order or "",
+        )
+        return MonitorOverviewLogListResponse(
+            page_no=page.page,
+            page_size=page.page_size,
+            total=page.total,
+            details=[self._to_monitor_log_item(item) for item in page.items],
+        )
+
     def _normalize_page_no(self, page_no: int | None) -> int:
         default_page_no = self.settings.OPS_DEFAULT_PAGE_NO
         return max(int(page_no or default_page_no), 1)
@@ -150,6 +188,20 @@ class MonitorOverviewController(BaseController):
             update_time=item.update_time,
             is_offline=1 if item.status == "offline" else 0,
             is_alarm=1 if item.status in ABNORMAL_STATUSES else 0,
+        )
+
+    @staticmethod
+    def _to_monitor_log_item(item) -> MonitorOverviewLogItem:
+        level = (item.level or "").lower()
+        return MonitorOverviewLogItem(
+            log_id=item.log_id,
+            date=item.date,
+            machine_tag=item.machine_tag,
+            log_name=item.log_name,
+            level=level,
+            log=item.log,
+            update_time=item.update_time,
+            is_alarm=1 if level in LOG_ALARM_LEVELS else 0,
         )
 
     @staticmethod

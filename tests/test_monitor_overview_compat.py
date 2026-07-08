@@ -8,10 +8,13 @@ from app.controllers.monitor_overview_controller import (
     get_monitor_overview_controller,
 )
 from app.schemas.monitor_overview_schema import (
+    MonitorOverviewLogListRequest,
     MonitorOverviewOsListRequest,
     MonitorOverviewProcessListRequest,
 )
 from app.schemas.ops_schema import (
+    LogItem,
+    LogPageResponse,
     OsStateItem,
     OverviewLogStats,
     OverviewOsStats,
@@ -37,6 +40,7 @@ class FakeOverviewOpsService:
         self.overview_calls = []
         self.os_state_calls = []
         self.process_state_calls = []
+        self.log_calls = []
 
     def get_overview(self):
         self.overview_calls.append({})
@@ -115,6 +119,65 @@ class FakeOverviewOpsService:
             return [item for item in items if item.group == group]
         return items
 
+
+
+    def get_logs(
+        self,
+        group=None,
+        machine_tag=None,
+        level=None,
+        date=None,
+        page=1,
+        page_size=20,
+        only_error=False,
+        sort_by="",
+        sort_order="",
+    ):
+        self.log_calls.append(
+            {
+                "group": group,
+                "machine_tag": machine_tag,
+                "level": level,
+                "date": date,
+                "page": page,
+                "page_size": page_size,
+                "only_error": only_error,
+                "sort_by": sort_by,
+                "sort_order": sort_order,
+            }
+        )
+        items = [
+            LogItem(
+                log_id=3,
+                date="20260708",
+                machine_tag="machine-b",
+                log_name="trade",
+                level="ERROR",
+                log="error log",
+                update_time="20260708 08:50:03",
+            ),
+            LogItem(
+                log_id=2,
+                date="20260708",
+                machine_tag="machine-a",
+                log_name="trade",
+                level="warn",
+                log="warn log",
+                update_time="20260708 08:50:02",
+            ),
+            LogItem(
+                log_id=1,
+                date="20260708",
+                machine_tag="machine-a",
+                log_name="trade",
+                level="info",
+                log="info log",
+                update_time="20260708 08:50:01",
+            ),
+        ]
+        start = (page - 1) * page_size
+        end = start + page_size
+        return LogPageResponse(items=items[start:end], total=len(items), page=page, page_size=page_size)
 
 def test_overview_total_matches_current_shape():
     service = FakeOverviewOpsService()
@@ -250,6 +313,109 @@ def test_overview_process_list_default_sort_puts_alarm_and_offline_first():
     assert [item.machine_tag for item in result.details] == ["machine-c", "machine-a", "machine-b"]
 
 
+
+def test_overview_log_list_uses_defaults_and_returns_page_shape():
+    service = FakeOverviewOpsService()
+    service.settings = fake_settings(OPS_DEFAULT_PAGE_NO=1, OPS_DEFAULT_PAGE_SIZE=2, OPS_MAX_PAGE_SIZE=50)
+    controller = MonitorOverviewController(service)
+
+    result = controller.get_log_list(MonitorOverviewLogListRequest())
+
+    assert result.model_dump() == {
+        "page_no": 1,
+        "page_size": 2,
+        "total": 3,
+        "details": [
+            {
+                "log_id": 3,
+                "date": "20260708",
+                "machine_tag": "machine-b",
+                "log_name": "trade",
+                "level": "error",
+                "log": "error log",
+                "update_time": "20260708 08:50:03",
+                "is_alarm": 1,
+            },
+            {
+                "log_id": 2,
+                "date": "20260708",
+                "machine_tag": "machine-a",
+                "log_name": "trade",
+                "level": "warn",
+                "log": "warn log",
+                "update_time": "20260708 08:50:02",
+                "is_alarm": 1,
+            },
+        ],
+    }
+    assert service.log_calls == [
+        {
+            "group": None,
+            "machine_tag": None,
+            "level": None,
+            "date": None,
+            "page": 1,
+            "page_size": 2,
+            "only_error": False,
+            "sort_by": "",
+            "sort_order": "",
+        }
+    ]
+
+
+def test_overview_log_list_passes_filters_sort_and_pagination():
+    service = FakeOverviewOpsService()
+    controller = MonitorOverviewController(service)
+
+    result = controller.get_log_list(
+        MonitorOverviewLogListRequest(
+            group="op",
+            only_error=1,
+            level="ERROR",
+            date="20260708",
+            page_no=2,
+            page_size=1,
+            sort_by="machine_tag",
+            sort_order="asc",
+        )
+    )
+
+    assert result.page_no == 2
+    assert result.page_size == 1
+    assert result.total == 3
+    assert result.details[0].level == "warn"
+    assert result.details[0].is_alarm == 1
+    assert service.log_calls == [
+        {
+            "group": "op",
+            "machine_tag": None,
+            "level": "error",
+            "date": "20260708",
+            "page": 2,
+            "page_size": 1,
+            "only_error": True,
+            "sort_by": "machine_tag",
+            "sort_order": "asc",
+        }
+    ]
+
+
+def test_overview_log_item_marks_info_as_not_alarm():
+    item = MonitorOverviewController._to_monitor_log_item(
+        LogItem(
+            log_id=1,
+            date="20260708",
+            machine_tag="machine-a",
+            log_name="trade",
+            level="info",
+            log="info log",
+            update_time="20260708 08:50:01",
+        )
+    )
+
+    assert item.is_alarm == 0
+    assert item.level == "info"
+
 def test_monitor_overview_routes_are_registered_without_legacy_ops_routes():
     from app.main import app
 
@@ -258,6 +424,7 @@ def test_monitor_overview_routes_are_registered_without_legacy_ops_routes():
     assert "/api_omms/monitor/overview/total" in paths
     assert "/api_omms/monitor/overview/os/list" in paths
     assert "/api_omms/monitor/overview/process/list" in paths
+    assert "/api_omms/monitor/overview/log/list" in paths
     assert not any(path.startswith("/api/ops") for path in paths)
 
 
@@ -273,6 +440,8 @@ def test_monitor_overview_openapi_matches_current_routes():
     assert "post" in paths["/api_omms/monitor/overview/os/list"]
     assert "/api_omms/monitor/overview/process/list" in paths
     assert "post" in paths["/api_omms/monitor/overview/process/list"]
+    assert "/api_omms/monitor/overview/log/list" in paths
+    assert "post" in paths["/api_omms/monitor/overview/log/list"]
     assert not any(path.startswith("/api/ops") for path in paths)
 
 
@@ -333,6 +502,23 @@ def test_monitor_overview_process_list_route_accepts_empty_body_and_declares_utf
     assert response.json()["data"] == {"page_no": 1, "page_size": 10, "total": 0, "details": []}
 
 
+def test_monitor_overview_log_list_route_accepts_empty_body_and_declares_utf8_charset():
+    from app.main import app
+
+    class FakeController:
+        def get_log_list(self, request=None):
+            return {"page_no": 1, "page_size": 10, "total": 0, "details": []}
+
+    app.dependency_overrides[get_monitor_overview_controller] = lambda: FakeController()
+    try:
+        response = TestClient(app).post("/api_omms/monitor/overview/log/list")
+    finally:
+        app.dependency_overrides.pop(get_monitor_overview_controller, None)
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/json; charset=utf-8"
+    assert response.json()["data"] == {"page_no": 1, "page_size": 10, "total": 0, "details": []}
+
 def test_monitor_overview_os_list_rejects_gropy_typo():
     from app.main import app
 
@@ -345,5 +531,13 @@ def test_monitor_overview_process_list_rejects_gropy_typo():
     from app.main import app
 
     response = TestClient(app).post("/api_omms/monitor/overview/process/list", json={"gropy": "op"})
+
+    assert response.status_code == 422
+
+
+def test_monitor_overview_log_list_rejects_gropy_typo():
+    from app.main import app
+
+    response = TestClient(app).post("/api_omms/monitor/overview/log/list", json={"gropy": "op"})
 
     assert response.status_code == 422

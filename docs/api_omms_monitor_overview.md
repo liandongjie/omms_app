@@ -124,3 +124,54 @@ POST /api_omms/monitor/overview/process/list
 ```
 
 Process 列表以启用的 `ops_cfg.type = 'process'` 配置为基准，匹配 `ops_state` 时使用 `machine_tag + type + key + value`，其中 key/value 按包含关系匹配。`cpu` 和 `mem` 展示数据库 `dat` 中的原始值，不乘以 100，不做单位换算。
+
+## Log 总览列表
+
+```http
+POST /api_omms/monitor/overview/log/list
+```
+
+请求体：
+
+```json
+{
+  "group": "",
+  "only_error": 0,
+  "level": "",
+  "date": "",
+  "page_no": 1,
+  "page_size": 20,
+  "sort_by": "",
+  "sort_order": ""
+}
+```
+
+`group` 为空、`null` 或 `all` 表示不过滤；有值时先通过 `ops_cfg.group` 查询启用配置的 `machine_tag` 集合，再过滤 `ops_log.machine_tag`。`date` 为空时默认查询当天，传值时按 `ops_log.date` 字符串匹配。`level` 支持 `info`、`warn`、`error`，大小写输入会统一按小写处理；`level` 有值时优先精确过滤，`level` 为空且 `only_error=1` 时只返回 `warn` 和 `error`。默认按 `log_id desc` 排序。
+
+响应示例：
+
+```json
+{
+  "code": 200,
+  "msg": "success",
+  "data": {
+    "page_no": 1,
+    "page_size": 20,
+    "total": 2,
+    "details": [
+      {
+        "log_id": 210,
+        "date": "20260708",
+        "machine_tag": "lk_cta_2510",
+        "log_name": "/home/ywang/tp_v2601_s...",
+        "level": "info",
+        "log": "[20260708 08:50:04.343456][info] [tlBinTradeLite] START...",
+        "update_time": "20260708 08:50:04",
+        "is_alarm": 0
+      }
+    ]
+  }
+}
+```
+
+`is_alarm` 规则：`warn` 和 `error` 返回 1，`info` 返回 0。

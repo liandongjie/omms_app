@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 MonitorOverviewSortBy = Literal[
@@ -25,6 +25,15 @@ MonitorOverviewProcessSortBy = Literal[
     "update_time",
     "is_offline",
     "is_alarm",
+]
+MonitorOverviewLogSortBy = Literal[
+    "",
+    "log_id",
+    "date",
+    "machine_tag",
+    "log_name",
+    "level",
+    "update_time",
 ]
 
 
@@ -93,3 +102,44 @@ class MonitorOverviewProcessListResponse(BaseModel):
     page_size: int
     total: int
     details: list[MonitorOverviewProcessItem]
+
+
+class MonitorOverviewLogItem(BaseModel):
+    log_id: int
+    date: str | None = None
+    machine_tag: str | None = None
+    log_name: str | None = None
+    level: str | None = None
+    log: str | None = None
+    update_time: str | None = None
+    is_alarm: int = 0
+
+
+class MonitorOverviewLogListRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    group: str | None = ""
+    only_error: bool | int | None = 0
+    level: str | None = ""
+    date: str | None = ""
+    page_no: int | None = None
+    page_size: int | None = None
+    sort_by: MonitorOverviewLogSortBy | None = ""
+    sort_order: MonitorOverviewSortOrder | None = ""
+
+    @field_validator("level")
+    @classmethod
+    def normalize_level(cls, value: str | None) -> str:
+        if value is None:
+            return ""
+        normalized = value.strip().lower()
+        if normalized not in {"", "info", "warn", "error"}:
+            raise ValueError("unsupported level")
+        return normalized
+
+
+class MonitorOverviewLogListResponse(BaseModel):
+    page_no: int
+    page_size: int
+    total: int
+    details: list[MonitorOverviewLogItem]

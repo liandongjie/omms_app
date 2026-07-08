@@ -2,6 +2,10 @@
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from app.models.database import Base
 from app.models.ops_model import OpsCfg, OpsLog, OpsState
 from app.schemas.ops_schema import LogPageResponse, OverviewLogStats
 from app.services.ops_service import OpsService
@@ -425,6 +429,115 @@ class FakeLevelDb:
     def query(self, *args):
         return FakeLevelQuery(self.rows)
 
+
+
+class FixedNowLogOpsService(OpsService):
+    def _now(self):
+        return datetime(2026, 7, 8, 9, 0, 0)
+
+
+def make_log_service():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+    db = session_factory()
+    service = FixedNowLogOpsService(db, settings=fake_settings(OPS_MAX_PAGE_SIZE=100))
+    return service, db
+
+
+def log_row(log_id, date="20260708", machine_tag="m1", log_name="trade", level="info"):
+    return OpsLog(
+        log_id=log_id,
+        date=date,
+        machine_tag=machine_tag,
+        log_name=log_name,
+        level=level,
+        log=f"{level} log {log_id}",
+        update_time=f"{date} 08:50:0{log_id % 10}",
+    )
+
+
+def cfg_row(machine_tag, group_name):
+    return OpsCfg(
+        type="os",
+        machine_tag=machine_tag,
+        group_name=group_name,
+        cfg_key="os",
+        value="",
+        status=1,
+    )
+
+
+def seed_log_rows(db):
+    db.add_all([
+        log_row(1, machine_tag="m1", level="info"),
+        log_row(2, machine_tag="m1", level="warn"),
+        log_row(3, machine_tag="m2", level="ERROR"),
+        log_row(4, date="20260707", machine_tag="m1", level="error"),
+    ])
+    db.commit()
+
+
+def test_get_logs_defaults_to_today_and_log_id_desc():
+    service, db = make_log_service()
+    seed_log_rows(db)
+
+    result = service.get_logs()
+
+    assert result.total == 3
+    assert [item.log_id for item in result.items] == [3, 2, 1]
+
+
+def test_get_logs_filters_by_explicit_date():
+    service, db = make_log_service()
+    seed_log_rows(db)
+
+    result = service.get_logs(date="20260707")
+
+    assert result.total == 1
+    assert result.items[0].log_id == 4
+
+
+def test_get_logs_only_error_and_level_filters_are_case_insensitive():
+    service, db = make_log_service()
+    seed_log_rows(db)
+
+    only_error = service.get_logs(only_error=True)
+    info = service.get_logs(level="info")
+    error = service.get_logs(level="ERROR")
+
+    assert [item.log_id for item in only_error.items] == [3, 2]
+    assert [item.log_id for item in info.items] == [1]
+    assert [item.log_id for item in error.items] == [3]
+    assert error.items[0].level == "error"
+
+
+def test_get_logs_group_filters_by_ops_cfg_machine_tags():
+    service, db = make_log_service()
+    seed_log_rows(db)
+    db.add_all([cfg_row("m1", "algo00x"), cfg_row("m2", "op")])
+    db.commit()
+
+    algo = service.get_logs(group="algo00x")
+    op = service.get_logs(group="op")
+    missing = service.get_logs(group="missing")
+
+    assert [item.machine_tag for item in algo.items] == ["m1", "m1"]
+    assert [item.machine_tag for item in op.items] == ["m2"]
+    assert missing.total == 0
+    assert missing.items == []
+
+
+def test_get_logs_supports_explicit_sort_and_pagination():
+    service, db = make_log_service()
+    seed_log_rows(db)
+
+    result = service.get_logs(page=2, page_size=1, sort_by="machine_tag", sort_order="asc")
+
+    assert result.total == 3
+    assert result.page == 2
+    assert result.page_size == 1
+    assert result.items[0].machine_tag == "m1"
 
 def test_log_error_warn_info_stats():
     service = OpsService(FakeLevelDb([("error",), ("warn",), ("info",)]), settings=fake_settings())

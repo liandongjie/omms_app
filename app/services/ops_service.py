@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Iterable
 
 from fastapi import Depends
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -26,6 +27,8 @@ from app.utils.ops_parse import is_in_work_time, is_stale, parse_dat, parse_metr
 
 
 ABNORMAL_STATUSES = {"warning", "error", "offline", "unknown"}
+LOG_ALARM_LEVELS = {"warn", "error"}
+LOG_SORT_FIELDS = {"log_id", "date", "machine_tag", "log_name", "level", "update_time"}
 
 
 class OpsService(BaseService):
@@ -83,25 +86,43 @@ class OpsService(BaseService):
         date: str | None = None,
         page: int = 1,
         page_size: int = 20,
+        only_error: bool = False,
+        sort_by: str | None = "",
+        sort_order: str | None = "",
     ) -> LogPageResponse:
-        target_date = date or today_yyyymmdd()
+        target_date = date or today_yyyymmdd(self._now())
         page = max(page, 1)
-        page_size = min(max(page_size, 1), 200)
+        max_page_size = getattr(self.settings, "OPS_MAX_PAGE_SIZE", 200)
+        page_size = min(max(page_size, 1), max_page_size)
 
         machine_tags = self._get_group_machine_tags(group) if group else None
         query = self.db.query(OpsLog).filter(OpsLog.date == target_date)
         if machine_tag:
             query = query.filter(OpsLog.machine_tag == machine_tag)
-        if level:
-            query = query.filter(OpsLog.level == level)
+
+        normalized_level = (level or "").strip().lower()
+        if normalized_level:
+            query = query.filter(func.lower(OpsLog.level) == normalized_level)
+        elif only_error:
+            query = query.filter(func.lower(OpsLog.level).in_(LOG_ALARM_LEVELS))
+
         if machine_tags is not None:
             if not machine_tags:
                 return LogPageResponse(items=[], total=0, page=page, page_size=page_size)
             query = query.filter(OpsLog.machine_tag.in_(machine_tags))
 
         total = query.count()
+        sort_field = sort_by or "log_id"
+        if sort_field not in LOG_SORT_FIELDS:
+            raise ValueError(f"unsupported sort_by: {sort_by}")
+        sort_column = getattr(OpsLog, sort_field)
+        if sort_order == "asc":
+            order_by = sort_column.asc()
+        else:
+            order_by = sort_column.desc()
+
         logs = (
-            query.order_by(OpsLog.log_id.desc())
+            query.order_by(order_by)
             .offset((page - 1) * page_size)
             .limit(page_size)
             .all()
@@ -342,7 +363,7 @@ class OpsService(BaseService):
             machine_tag=log.machine_tag,
             group=group,
             log_name=log.log_name,
-            level=log.level,
+            level=(log.level or "").lower(),
             log=log.log,
             update_time=log.update_time,
         )
