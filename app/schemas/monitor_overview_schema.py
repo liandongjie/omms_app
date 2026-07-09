@@ -51,6 +51,7 @@ class MonitorOverviewTotalResponse(BaseModel):
 
 class MonitorOverviewOsItem(BaseModel):
     machine_tag: str
+    group: str | None = None
     cpu_usage: float | None = None
     mem_usage: float | None = None
     disk_usage: float | None = None
