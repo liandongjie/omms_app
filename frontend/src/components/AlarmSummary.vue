@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="alarm-summary">
     <div v-for="item in items" :key="item.label" class="alarm-summary__item">
       <span class="alarm-summary__label">{{ item.label }}</span>
