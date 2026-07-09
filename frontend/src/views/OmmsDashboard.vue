@@ -75,17 +75,17 @@
       </section>
 
       <section :ref="setSectionRef('logs')" class="scroll-section">
-        <SectionCard title="最近日志" description="日志接口待接入，第一版保留页面区域">
+        <SectionCard title="最近日志" description="来自最近日志接口的当天日志记录">
           <template #extra>
-            <GroupFilter v-model="logGroup" :options="GROUP_OPTIONS" />
+            <GroupFilter v-model="logGroup" :options="GROUP_OPTIONS" @change="handleLogGroupChange" />
           </template>
-          <RecentLogTable :group="logGroup" />
+          <RecentLogTable :rows="logRows" :loading="logLoading" :error-message="logErrorMessage" />
         </SectionCard>
       </section>
 
       <section :ref="setSectionRef('alarms')" class="scroll-section">
-        <SectionCard title="告警统计" description="基于当前 OS 和进程数据的本地统计">
-          <AlarmSummary :os-alarm="osAlarmCount" :process-alarm="processAlarmCount" :log-alarm="0" />
+        <SectionCard title="告警统计" description="基于当前 OS、进程和最近日志数据的本地统计">
+          <AlarmSummary :os-alarm="osAlarmCount" :process-alarm="processAlarmCount" :log-alarm="logAlarmCount" />
         </SectionCard>
       </section>
     </main>
@@ -96,9 +96,12 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch, type ComponentPublicInstance } from 'vue';
 import { message } from 'ant-design-vue';
 import {
+  fetchOverviewLogList,
   fetchOverviewOsList,
   fetchOverviewProcessList,
   fetchOverviewTotal,
+  type LogListParams,
+  type LogRow,
   type MonitorListData,
   type MonitorListParams,
   type MonitorRow,
@@ -147,6 +150,7 @@ const menuItems: { key: SectionKey; label: string }[] = [
 const overviewTotal = ref<OverviewTotalData>({});
 const osRows = ref<MonitorRow[]>([]);
 const processRows = ref<MonitorRow[]>([]);
+const logRows = ref<LogRow[]>([]);
 const osGroup = ref('');
 const processGroup = ref('');
 const logGroup = ref('');
@@ -156,7 +160,9 @@ const autoRefresh = ref(false);
 const pageLoading = ref(false);
 const osLoading = ref(false);
 const processLoading = ref(false);
+const logLoading = ref(false);
 const errorMessage = ref('');
+const logErrorMessage = ref('');
 const activeSection = ref<SectionKey>('overview');
 const sectionRefs = new Map<SectionKey, HTMLElement>();
 let refreshTimer: number | undefined;
@@ -172,6 +178,7 @@ const visibleOsRows = computed(() => filterRows(osRows.value, osGroup.value));
 const visibleProcessRows = computed(() => filterRows(processRows.value, processGroup.value));
 const osAlarmCount = computed(() => countAlarm(osRows.value));
 const processAlarmCount = computed(() => countAlarm(processRows.value));
+const logAlarmCount = computed(() => countAlarm(logRows.value));
 
 const statCards = computed<StatBlock[]>(() => [
   resolveStatBlock('OS 状态', ['os', 'os_status', 'osStatus', 'os_total', 'osTotal'], {
@@ -189,9 +196,9 @@ const statCards = computed<StatBlock[]>(() => [
     },
   ),
   resolveStatBlock('日志状态', ['log', 'logs', 'log_status', 'logStatus', 'log_total', 'logTotal'], {
-    total: 0,
-    alarm: 0,
-    error: 0,
+    total: logRows.value.length,
+    alarm: logAlarmCount.value,
+    error: logAlarmCount.value,
   }),
 ]);
 
@@ -234,6 +241,7 @@ async function refreshAll() {
       loadOverviewTotal(),
       loadOsRows(osRemoteGroup.value),
       loadProcessRows(processRemoteGroup.value),
+      loadLogRows(logGroup.value),
     ]);
   } catch (error) {
     const text = error instanceof Error ? error.message : '请求失败';
@@ -268,6 +276,21 @@ async function loadProcessRows(group: string) {
   }
 }
 
+async function loadLogRows(group: string) {
+  logLoading.value = true;
+  logErrorMessage.value = '';
+  try {
+    const data = await fetchOverviewLogList(buildLogListParams(group));
+    logRows.value = normalizeRows(data);
+  } catch (error) {
+    const text = error instanceof Error ? error.message : '请求失败';
+    logErrorMessage.value = `最近日志请求失败：${text}`;
+    message.error(logErrorMessage.value);
+  } finally {
+    logLoading.value = false;
+  }
+}
+
 async function handleOsGroupChange(value: string) {
   if (value === '__only_error__') return;
   osRemoteGroup.value = value;
@@ -278,6 +301,10 @@ async function handleProcessGroupChange(value: string) {
   if (value === '__only_error__') return;
   processRemoteGroup.value = value;
   await runAction(() => loadProcessRows(value));
+}
+
+async function handleLogGroupChange(value: string) {
+  await loadLogRows(value);
 }
 
 async function runAction(action: () => Promise<void>) {
@@ -298,7 +325,22 @@ function stopAutoRefresh() {
   }
 }
 
-function normalizeRows(data: MonitorListData<MonitorRow> | MonitorRow[]) {
+function buildLogListParams(group: string): LogListParams {
+  const onlyError = group === '__only_error__';
+
+  return {
+    group: onlyError ? '' : group,
+    only_error: onlyError ? 1 : 0,
+    level: '',
+    date: '',
+    page_no: 1,
+    page_size: 20,
+    sort_by: '',
+    sort_order: '',
+  };
+}
+
+function normalizeRows<T>(data: MonitorListData<T> | T[]) {
   if (Array.isArray(data)) return data;
   return data.details || data.list || data.records || data.items || data.rows || data.data || [];
 }
@@ -315,7 +357,7 @@ function isExceptionRow(row: MonitorRow) {
   return Number(row.is_alarm) === 1 || Number(row.is_offline) === 1;
 }
 
-function countAlarm(rows: MonitorRow[]) {
+function countAlarm(rows: Array<{ is_alarm?: unknown }>) {
   return rows.filter((row) => flag(row.is_alarm)).length;
 }
 

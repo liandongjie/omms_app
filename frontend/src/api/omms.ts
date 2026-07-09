@@ -14,6 +14,12 @@ export interface MonitorListParams {
   sort_order: string;
 }
 
+export interface LogListParams extends MonitorListParams {
+  only_error: number;
+  level: string;
+  date: string;
+}
+
 export interface MonitorRow {
   id?: string | number;
   machine_tag?: string;
@@ -39,6 +45,18 @@ export interface MonitorRow {
   timestamp?: string;
   is_alarm?: number | boolean;
   is_offline?: number | boolean;
+  [key: string]: unknown;
+}
+
+export interface LogRow {
+  log_id?: number;
+  date?: string;
+  machine_tag?: string;
+  log_name?: string;
+  level?: string;
+  log?: string;
+  update_time?: string;
+  is_alarm?: number | boolean;
   [key: string]: unknown;
 }
 
@@ -91,6 +109,14 @@ export function fetchOverviewOsList(params: MonitorListParams) {
 export function fetchOverviewProcessList(params: MonitorListParams) {
   return requestData<MonitorListData<MonitorRow> | MonitorRow[]>(
     '/api_omms/monitor/overview/process/list',
+    'POST',
+    params,
+  );
+}
+
+export function fetchOverviewLogList(params: LogListParams) {
+  return requestData<MonitorListData<LogRow> | LogRow[]>(
+    '/api_omms/monitor/overview/log/list',
     'POST',
     params,
   );
