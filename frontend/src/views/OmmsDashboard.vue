@@ -82,12 +82,6 @@
           <RecentLogTable :rows="logRows" :loading="logLoading" :error-message="logErrorMessage" />
         </SectionCard>
       </section>
-
-      <section :ref="setSectionRef('alarms')" class="scroll-section">
-        <SectionCard title="告警统计" description="基于当前 OS、进程和最近日志数据的本地统计">
-          <AlarmSummary :os-alarm="osAlarmCount" :process-alarm="processAlarmCount" :log-alarm="logAlarmCount" />
-        </SectionCard>
-      </section>
     </main>
   </div>
 </template>
@@ -107,7 +101,6 @@ import {
   type MonitorRow,
   type OverviewTotalData,
 } from '../api/omms';
-import AlarmSummary from '../components/AlarmSummary.vue';
 import GroupFilter from '../components/GroupFilter.vue';
 import OsStatusTable from '../components/OsStatusTable.vue';
 import ProcessStatusTable from '../components/ProcessStatusTable.vue';
@@ -115,7 +108,7 @@ import RecentLogTable from '../components/RecentLogTable.vue';
 import SectionCard from '../components/SectionCard.vue';
 import StatCard from '../components/StatCard.vue';
 
-type SectionKey = 'overview' | 'os' | 'process' | 'logs' | 'alarms';
+type SectionKey = 'overview' | 'os' | 'process' | 'logs';
 
 interface GroupOption {
   label: string;
@@ -144,7 +137,6 @@ const menuItems: { key: SectionKey; label: string }[] = [
   { key: 'os', label: 'OS 监控' },
   { key: 'process', label: '进程监控' },
   { key: 'logs', label: '关键日志' },
-  { key: 'alarms', label: '告警统计' },
 ];
 
 const AUTO_REFRESH_INTERVAL_MS = 5000;

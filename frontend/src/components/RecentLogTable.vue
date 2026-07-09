@@ -20,10 +20,7 @@
         <a-empty description="暂无日志数据" />
       </template>
       <template #bodyCell="{ column, record, index }">
-        <template v-if="column.key === 'time'">
-          {{ record.update_time || record.date || '-' }}
-        </template>
-        <template v-else-if="column.key === 'machine_tag'">
+        <template v-if="column.key === 'machine_tag'">
           {{ record.machine_tag || '-' }}
         </template>
         <template v-else-if="column.key === 'level'">
@@ -40,11 +37,6 @@
           <span class="recent-log-table__content" :title="record.log || ''">
             {{ record.log || '-' }}
           </span>
-        </template>
-        <template v-else-if="column.key === 'status'">
-          <a-tag :bordered="false" :color="isAlarm(record.is_alarm) ? 'red' : 'green'">
-            {{ isAlarm(record.is_alarm) ? '告警' : '正常' }}
-          </a-tag>
         </template>
         <template v-else-if="column.key === 'action'">
           <a-button
@@ -75,12 +67,10 @@ defineProps<{
 }>();
 
 const columns: TableColumnsType = [
-  { title: '时间', key: 'time', width: 170 },
   { title: '机器标识', key: 'machine_tag', width: 150 },
   { title: '级别', key: 'level', width: 90 },
   { title: '日志名称', key: 'log_name', width: 220, ellipsis: true },
   { title: '日志内容', key: 'log', ellipsis: true },
-  { title: '状态', key: 'status', width: 90 },
   { title: '操作', key: 'action', width: 110 },
 ];
 
@@ -97,9 +87,6 @@ function levelColor(level?: string) {
   return 'default';
 }
 
-function isAlarm(value: unknown) {
-  return value === true || value === 1 || value === '1';
-}
 
 function hasLogContent(record: LogRow) {
   return Boolean(record.log?.trim());
