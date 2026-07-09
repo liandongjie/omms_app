@@ -49,7 +49,7 @@ const columns: TableColumnsType = [
   { title: '进程名', key: 'process_name', width: 170 },
   { title: 'PID', key: 'pid', width: 100 },
   { title: 'CPU', key: 'cpu', width: 110 },
-  { title: '内存', key: 'mem', width: 110 },
+  { title: '内存 (M)', key: 'mem', width: 110 },
   { title: '更新时间', key: 'update_time', width: 190 },
   { title: '状态', key: 'status', width: 110, align: 'center' },
 ];
