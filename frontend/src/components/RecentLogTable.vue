@@ -46,6 +46,16 @@
             {{ isAlarm(record.is_alarm) ? '告警' : '正常' }}
           </a-tag>
         </template>
+        <template v-else-if="column.key === 'action'">
+          <a-button
+            type="link"
+            size="small"
+            :disabled="!hasLogContent(record)"
+            @click="copyLogContent(record)"
+          >
+            复制内容
+          </a-button>
+        </template>
         <template v-else-if="column.key === 'index'">
           {{ index + 1 }}
         </template>
@@ -55,7 +65,7 @@
 </template>
 
 <script setup lang="ts">
-import type { TableColumnsType } from 'ant-design-vue';
+import { message, type TableColumnsType } from 'ant-design-vue';
 import type { LogRow } from '../api/omms';
 
 defineProps<{
@@ -71,6 +81,7 @@ const columns: TableColumnsType = [
   { title: '日志名称', key: 'log_name', width: 220, ellipsis: true },
   { title: '日志内容', key: 'log', ellipsis: true },
   { title: '状态', key: 'status', width: 90 },
+  { title: '操作', key: 'action', width: 110 },
 ];
 
 function resolveRowKey(record: LogRow, index?: number) {
@@ -88,6 +99,31 @@ function levelColor(level?: string) {
 
 function isAlarm(value: unknown) {
   return value === true || value === 1 || value === '1';
+}
+
+function hasLogContent(record: LogRow) {
+  return Boolean(record.log?.trim());
+}
+
+async function copyLogContent(record: LogRow) {
+  const text = record.log || '';
+
+  if (!text.trim()) {
+    message.warning('暂无可复制内容');
+    return;
+  }
+
+  if (!navigator.clipboard?.writeText) {
+    message.error('复制失败，请手动复制');
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(text);
+    message.success('已复制日志内容');
+  } catch {
+    message.error('复制失败，请手动复制');
+  }
 }
 </script>
 
