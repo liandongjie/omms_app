@@ -23,6 +23,7 @@ export interface LogListParams extends MonitorListParams {
 export interface MonitorRow {
   id?: string | number;
   machine_tag?: string;
+  group?: string;
   machine_id?: string;
   machine?: string;
   host?: string;

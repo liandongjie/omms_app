@@ -169,6 +169,7 @@ class MonitorOverviewController(BaseController):
     def _to_monitor_os_item(item) -> MonitorOverviewOsItem:
         return MonitorOverviewOsItem(
             machine_tag=item.machine_tag,
+            group=item.group,
             cpu_usage=item.cpu_usage,
             mem_usage=item.memory_usage,
             disk_usage=item.disk_usage,

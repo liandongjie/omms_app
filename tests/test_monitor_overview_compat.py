@@ -207,6 +207,7 @@ def test_overview_os_list_uses_defaults_and_returns_page_shape():
         "details": [
             {
                 "machine_tag": "machine-normal",
+                "group": "algo00x",
                 "cpu_usage": 0.65,
                 "mem_usage": 0.86,
                 "disk_usage": 0.72,
@@ -227,6 +228,7 @@ def test_overview_os_list_supports_group_and_pagination():
 
     assert result.total == 1
     assert result.details[0].machine_tag == "machine-offline"
+    assert result.details[0].group == "op"
     assert result.details[0].is_offline == 1
     assert result.details[0].is_alarm == 1
     assert service.os_state_calls == [{"group": "op"}]
