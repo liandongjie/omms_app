@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="dashboard-shell">
     <aside class="sidebar">
       <div class="brand">
@@ -147,6 +147,8 @@ const menuItems: { key: SectionKey; label: string }[] = [
   { key: 'alarms', label: '告警统计' },
 ];
 
+const AUTO_REFRESH_INTERVAL_MS = 5000;
+
 const overviewTotal = ref<OverviewTotalData>({});
 const osRows = ref<MonitorRow[]>([]);
 const processRows = ref<MonitorRow[]>([]);
@@ -156,7 +158,8 @@ const processGroup = ref('');
 const logGroup = ref('');
 const osRemoteGroup = ref('');
 const processRemoteGroup = ref('');
-const autoRefresh = ref(false);
+const autoRefresh = ref(true);
+const refreshing = ref(false);
 const pageLoading = ref(false);
 const osLoading = ref(false);
 const processLoading = ref(false);
@@ -204,6 +207,7 @@ const statCards = computed<StatBlock[]>(() => [
 
 onMounted(() => {
   refreshAll();
+  startAutoRefresh();
 });
 
 onBeforeUnmount(() => {
@@ -212,7 +216,7 @@ onBeforeUnmount(() => {
 
 watch(autoRefresh, (enabled) => {
   if (enabled) {
-    refreshTimer = window.setInterval(refreshAll, 5000);
+    startAutoRefresh();
     return;
   }
 
@@ -233,6 +237,9 @@ function scrollToSection(key: SectionKey) {
 }
 
 async function refreshAll() {
+  if (refreshing.value) return;
+
+  refreshing.value = true;
   pageLoading.value = true;
   errorMessage.value = '';
 
@@ -249,6 +256,7 @@ async function refreshAll() {
     message.error(text);
   } finally {
     pageLoading.value = false;
+    refreshing.value = false;
   }
 }
 
@@ -316,6 +324,11 @@ async function runAction(action: () => Promise<void>) {
     errorMessage.value = text;
     message.error(text);
   }
+}
+
+function startAutoRefresh() {
+  if (refreshTimer) return;
+  refreshTimer = window.setInterval(refreshAll, AUTO_REFRESH_INTERVAL_MS);
 }
 
 function stopAutoRefresh() {
