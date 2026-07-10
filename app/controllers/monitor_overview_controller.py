@@ -5,6 +5,8 @@ from app.config import get_settings
 from app.controllers.base_controller import BaseController
 from app.schemas.monitor_overview_schema import (
     MonitorOverviewCard,
+    MonitorOverviewGroupItem,
+    MonitorOverviewGroupListResponse,
     MonitorOverviewLogItem,
     MonitorOverviewLogListRequest,
     MonitorOverviewLogListResponse,
@@ -80,6 +82,14 @@ class MonitorOverviewController(BaseController):
                 alarm=overview.log.alarm_count,
                 error=overview.log.error_count,
             ),
+        )
+
+    def get_group_list(self) -> MonitorOverviewGroupListResponse:
+        return MonitorOverviewGroupListResponse(
+            details=[
+                MonitorOverviewGroupItem(group=item.group, display_name=item.display_name)
+                for item in self.ops_service.get_groups()
+            ]
         )
 
     def get_os_list(self, request: MonitorOverviewOsListRequest | None = None) -> MonitorOverviewOsListResponse:

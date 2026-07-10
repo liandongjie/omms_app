@@ -13,6 +13,7 @@ from app.schemas.monitor_overview_schema import (
     MonitorOverviewProcessListRequest,
 )
 from app.schemas.ops_schema import (
+    GroupItem,
     LogItem,
     LogPageResponse,
     OsStateItem,
@@ -38,6 +39,7 @@ class FakeOverviewOpsService:
     def __init__(self):
         self.settings = fake_settings()
         self.overview_calls = []
+        self.group_calls = []
         self.os_state_calls = []
         self.process_state_calls = []
         self.log_calls = []
@@ -49,6 +51,13 @@ class FakeOverviewOpsService:
             process=OverviewProcessStats(total=30, alarm_count=5),
             log=OverviewLogStats(total=120, alarm_count=15, error_count=2),
         )
+
+    def get_groups(self):
+        self.group_calls.append({})
+        return [
+            GroupItem(group="algo00x", display_name="algo00x"),
+            GroupItem(group="op", display_name="op"),
+        ]
 
     def get_os_states(self, group=None):
         self.os_state_calls.append({"group": group})
@@ -196,6 +205,21 @@ def test_overview_total_matches_current_shape():
         "log": {"total": 120, "alarm": 15, "error": 2},
     }
     assert service.overview_calls == [{}]
+
+
+def test_overview_group_list_returns_details_shape():
+    service = FakeOverviewOpsService()
+    controller = MonitorOverviewController(service)
+
+    result = controller.get_group_list()
+
+    assert result.model_dump() == {
+        "details": [
+            {"group": "algo00x", "display_name": "algo00x"},
+            {"group": "op", "display_name": "op"},
+        ]
+    }
+    assert service.group_calls == [{}]
 
 
 def test_overview_os_list_uses_defaults_and_returns_page_shape():
@@ -437,6 +461,7 @@ def test_monitor_overview_routes_are_registered_without_legacy_ops_routes():
     paths = {route.path for route in app.routes}
 
     assert "/api_omms/monitor/overview/total" in paths
+    assert "/api_omms/monitor/group/list" in paths
     assert "/api_omms/monitor/overview/os/list" in paths
     assert "/api_omms/monitor/overview/process/list" in paths
     assert "/api_omms/monitor/overview/log/list" in paths
@@ -451,6 +476,8 @@ def test_monitor_overview_openapi_matches_current_routes():
 
     assert "/api_omms/monitor/overview/total" in paths
     assert "get" in paths["/api_omms/monitor/overview/total"]
+    assert "/api_omms/monitor/group/list" in paths
+    assert "get" in paths["/api_omms/monitor/group/list"]
     assert "/api_omms/monitor/overview/os/list" in paths
     assert "post" in paths["/api_omms/monitor/overview/os/list"]
     assert "/api_omms/monitor/overview/process/list" in paths
@@ -479,6 +506,34 @@ def test_monitor_overview_total_route_has_no_required_params():
 
     assert response.status_code == 200
     assert response.json()["data"]["os"] == {"total": 10, "alarm": 2, "error": 2}
+
+
+def test_monitor_group_list_route_returns_details_and_declares_utf8_charset():
+    from app.main import app
+
+    class FakeController:
+        def get_group_list(self):
+            return {
+                "details": [
+                    {"group": "algo00x", "display_name": "algo00x"},
+                    {"group": "op", "display_name": "op"},
+                ]
+            }
+
+    app.dependency_overrides[get_monitor_overview_controller] = lambda: FakeController()
+    try:
+        response = TestClient(app).get("/api_omms/monitor/group/list")
+    finally:
+        app.dependency_overrides.pop(get_monitor_overview_controller, None)
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/json; charset=utf-8"
+    assert response.json()["data"] == {
+        "details": [
+            {"group": "algo00x", "display_name": "algo00x"},
+            {"group": "op", "display_name": "op"},
+        ]
+    }
 
 
 def test_monitor_overview_os_list_route_accepts_empty_body_and_declares_utf8_charset():
