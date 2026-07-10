@@ -298,6 +298,58 @@ def test_process_args_use_state_value_even_when_dat_args_exists():
     assert item.cpu == 0.116
     assert item.memory == 2097.57
     assert item.status == "normal"
+    assert item.extra is None
+
+
+def test_process_extra_uses_dat_fields_except_fixed_columns():
+    process_cfg = cfg(cfg_type="process", cfg_key="tlBinTradeLite", value="cfg.yaml")
+    row = state(
+        state_type="process",
+        state_key="./bin/tlBinTradeLite",
+        value="cfg.yaml state.yaml",
+        dat=(
+            "{'pid': 103833, 'cpu': 0.116, 'mem': 2097.57, 'memory': 2098, "
+            "'args': ['--env', 'prod'], 'pname': 'tlBinTradeLite', "
+            "'process_name': 'ignoredName', 'drawdown': 0.12, "
+            "'order_count': 7, 'status_detail': 'hedging'}"
+        ),
+    )
+
+    item = FakeOpsService([process_cfg], [row]).get_process_states(date="20260625")[0]
+
+    assert item.args == "cfg.yaml state.yaml"
+    assert item.pid == 103833
+    assert item.cpu == 0.116
+    assert item.memory == 2097.57
+    assert item.extra == {
+        "drawdown": 0.12,
+        "order_count": 7,
+        "status_detail": "hedging",
+    }
+
+
+def test_process_extra_is_none_when_dat_empty_or_parse_failed():
+    process_cfg = cfg(cfg_type="process", cfg_key="tlBinTradeLite", value="cfg.yaml")
+    empty_dat = state(
+        state_type="process",
+        state_key="./bin/tlBinTradeLite",
+        value="cfg.yaml",
+        dat=None,
+    )
+    bad_dat = state(
+        state_type="process",
+        state_key="./bin/tlBinTradeLite",
+        value="cfg.yaml",
+        dat="{broken",
+    )
+
+    empty_item = FakeOpsService([process_cfg], [empty_dat]).get_process_states(date="20260625")[0]
+    bad_item = FakeOpsService([process_cfg], [bad_dat]).get_process_states(date="20260625")[0]
+
+    assert empty_item.extra is None
+    assert empty_item.status == "normal"
+    assert bad_item.extra is None
+    assert bad_item.status == "unknown"
 
 
 def test_process_args_use_state_value_and_missing_state_returns_none():
@@ -441,6 +493,29 @@ def test_process_state_only_is_excluded_by_default_and_added_for_all_group():
     assert unconfigured.memory == 300.5
     assert unconfigured.status == "normal"
     assert unconfigured.is_configured is False
+
+
+def test_process_state_only_extra_uses_dat_fields_except_fixed_columns():
+    state_only = state(
+        state_type="process",
+        machine_tag="state-only-machine",
+        state_key="./bin/unconfigured",
+        value="state-only args",
+        dat=(
+            "{'pname': 'unconfiguredProc', 'pid': 202, 'cpu': 0.2, "
+            "'mem': 300.5, 'strategy_name': 'alpha', 'position': 3}"
+        ),
+    )
+
+    item = FakeOpsService([], [state_only]).get_process_states(
+        date="20260625",
+        include_state_only=True,
+    )[0]
+
+    assert item.process_name == "unconfiguredProc"
+    assert item.args == "state-only args"
+    assert item.is_configured is False
+    assert item.extra == {"strategy_name": "alpha", "position": 3}
 
 
 def test_process_state_only_is_not_added_for_specific_group():

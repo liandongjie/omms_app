@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
@@ -89,6 +89,7 @@ class MonitorOverviewProcessItem(BaseModel):
     is_configured: bool = True
     is_offline: int = 0
     is_alarm: int = 0
+    extra: dict[str, Any] | None = None
 
 
 class MonitorOverviewProcessListRequest(BaseModel):

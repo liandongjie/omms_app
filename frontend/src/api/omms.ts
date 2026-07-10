@@ -48,6 +48,7 @@ export interface MonitorRow {
   is_alarm?: number | boolean;
   is_offline?: number | boolean;
   is_configured?: boolean;
+  extra?: Record<string, unknown> | null;
   [key: string]: unknown;
 }
 

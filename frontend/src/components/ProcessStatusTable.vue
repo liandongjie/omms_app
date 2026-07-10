@@ -37,12 +37,49 @@
       <template v-else-if="column.key === 'status'">
         <StatusTag :is-alarm="record.is_alarm" :is-offline="record.is_offline" />
       </template>
+      <template v-else-if="column.key === 'extra'">
+        <a-button v-if="hasExtra(record)" type="link" size="small" @click="openExtraModal(record)">
+          查看
+        </a-button>
+        <span v-else>-</span>
+      </template>
     </template>
   </a-table>
+
+  <a-modal
+    v-model:open="extraModalOpen"
+    title="进程详情"
+    :footer="null"
+    width="680px"
+  >
+    <a-descriptions
+      v-if="selectedRow"
+      bordered
+      size="small"
+      :column="1"
+    >
+      <a-descriptions-item label="机器标识">
+        {{ getMachineName(selectedRow) }}
+      </a-descriptions-item>
+      <a-descriptions-item label="进程名">
+        {{ getProcessName(selectedRow) }}
+      </a-descriptions-item>
+      <a-descriptions-item label="args">
+        <span class="detail-value">{{ getArgsText(selectedRow) }}</span>
+      </a-descriptions-item>
+      <a-descriptions-item
+        v-for="item in selectedExtraItems"
+        :key="item.key"
+        :label="item.key"
+      >
+        <span class="detail-value">{{ item.value }}</span>
+      </a-descriptions-item>
+    </a-descriptions>
+  </a-modal>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import type { TableColumnsType } from 'ant-design-vue';
 import type { MonitorRow } from '../api/omms';
 import StatusTag from './StatusTag.vue';
@@ -62,7 +99,11 @@ const columns: TableColumnsType = [
   { title: '内存 (M)', key: 'mem', width: 110 },
   { title: '更新时间', key: 'update_time', width: 190 },
   { title: '状态', key: 'status', width: 110, align: 'center' },
+  { title: '详情', key: 'extra', width: 90, align: 'center' },
 ];
+
+const extraModalOpen = ref(false);
+const selectedRow = ref<MonitorRow | null>(null);
 
 const tableRows = computed(() =>
   props.rows.map((row, index) => ({
@@ -70,6 +111,16 @@ const tableRows = computed(() =>
     ...row,
   })),
 );
+
+const selectedExtraItems = computed(() => {
+  const extra = selectedRow.value?.extra;
+  if (!isPlainRecord(extra)) return [];
+
+  return Object.entries(extra).map(([key, value]) => ({
+    key,
+    value: formatExtraValue(value),
+  }));
+});
 
 function getMachineName(row: MonitorRow) {
   return (
@@ -108,6 +159,31 @@ function formatMetric(value: unknown) {
   if (!Number.isFinite(numberValue)) return String(value);
   return numberValue.toFixed(2);
 }
+
+function hasExtra(row: MonitorRow) {
+  return isPlainRecord(row.extra) && Object.keys(row.extra).length > 0;
+}
+
+function openExtraModal(row: MonitorRow) {
+  selectedRow.value = row;
+  extraModalOpen.value = true;
+}
+
+function formatExtraValue(value: unknown) {
+  if (value === null || value === undefined || value === '') return '-';
+  if (Array.isArray(value) || typeof value === 'object') {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value);
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
 </script>
 
 <style scoped>
@@ -118,5 +194,10 @@ function formatMetric(value: unknown) {
   text-overflow: ellipsis;
   vertical-align: bottom;
   white-space: nowrap;
+}
+
+.detail-value {
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 </style>

@@ -92,6 +92,7 @@ class FakeOverviewOpsService:
                 update_time="20260706 23:59:54",
                 status="normal",
                 message="normal",
+                extra={"drawdown": 0.12, "strategy_name": "alpha"},
             ),
             ProcessStateItem(
                 machine_tag="machine-c",
@@ -116,6 +117,7 @@ class FakeOverviewOpsService:
                 update_time=None,
                 status="unknown",
                 message="parse failed",
+                extra=None,
             ),
         ]
         if group:
@@ -272,6 +274,7 @@ def test_overview_process_list_uses_defaults_and_returns_page_shape():
                 "is_configured": True,
                 "is_offline": 0,
                 "is_alarm": 1,
+                "extra": None,
             }
         ],
     }
@@ -313,6 +316,7 @@ def test_overview_process_list_maps_raw_pid_cpu_mem_values():
     assert normal.is_configured is True
     assert normal.is_offline == 0
     assert normal.is_alarm == 0
+    assert normal.extra == {"drawdown": 0.12, "strategy_name": "alpha"}
 
 
 def test_overview_process_list_default_sort_puts_alarm_and_offline_first():
