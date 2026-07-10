@@ -14,6 +14,9 @@
       <template v-else-if="column.key === 'process_name'">
         {{ getProcessName(record) }}
       </template>
+      <template v-else-if="column.key === 'args'">
+        <span class="process-args-cell" :title="getArgsText(record)">{{ getArgsText(record) }}</span>
+      </template>
       <template v-else-if="column.key === 'pid'">
         {{ record.pid ?? '-' }}
       </template>
@@ -47,6 +50,7 @@ const props = defineProps<{
 const columns: TableColumnsType = [
   { title: '机器标识', key: 'machine', width: 150 },
   { title: '进程名', key: 'process_name', width: 170 },
+  { title: 'args', key: 'args', width: 260 },
   { title: 'PID', key: 'pid', width: 100 },
   { title: 'CPU (%)', key: 'cpu', width: 110 },
   { title: '内存 (M)', key: 'mem', width: 110 },
@@ -79,6 +83,11 @@ function getProcessName(row: MonitorRow) {
   return row.process_name || row.proc_name || row.name || '-';
 }
 
+function getArgsText(row: MonitorRow) {
+  if (row.args === null || row.args === undefined || row.args === '') return '-';
+  return String(row.args);
+}
+
 function getUpdateTime(row: MonitorRow) {
   return row.update_time || row.updated_at || row.collect_time || row.timestamp || '-';
 }
@@ -90,3 +99,14 @@ function formatMetric(value: unknown) {
   return numberValue.toFixed(2);
 }
 </script>
+
+<style scoped>
+.process-args-cell {
+  display: inline-block;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
+</style>

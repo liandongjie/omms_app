@@ -44,6 +44,7 @@ class ProcessStateItem(BaseModel):
     machine_tag: str
     group: str | None = None
     process_name: str
+    args: str | None = None
     pid: int | None = None
     cpu: float | None = None
     memory: float | None = None

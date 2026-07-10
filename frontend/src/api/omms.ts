@@ -33,6 +33,7 @@ export interface MonitorRow {
   name?: string;
   process_name?: string;
   proc_name?: string;
+  args?: string;
   pid?: string | number;
   cpu?: number;
   cpu_usage?: number;

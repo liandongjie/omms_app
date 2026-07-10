@@ -183,6 +183,7 @@ class MonitorOverviewController(BaseController):
         return MonitorOverviewProcessItem(
             machine_tag=item.machine_tag,
             process_name=item.process_name,
+            args=item.args,
             pid=item.pid,
             cpu=item.cpu,
             mem=item.memory,

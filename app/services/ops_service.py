@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from collections import Counter
 from datetime import datetime
-from typing import Iterable
+from typing import Any, Iterable
 
 from fastapi import Depends
 from sqlalchemy import func
@@ -343,10 +343,13 @@ class OpsService(BaseService):
             status = "normal"
             message = "normal"
 
+        args = self._normalize_process_args(state.value)
+
         return ProcessStateItem(
             machine_tag=cfg.machine_tag,
             group=cfg.group_name,
             process_name=cfg.cfg_key,
+            args=args,
             pid=data.get("pid"),
             cpu=data.get("cpu"),
             memory=data.get("mem", data.get("memory")),
@@ -354,6 +357,13 @@ class OpsService(BaseService):
             message=message,
             update_time=state.update_time,
         )
+
+    @staticmethod
+    def _normalize_process_args(value: Any) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
 
     @staticmethod
     def _build_log_item(log: OpsLog, group: str | None = None) -> LogItem:

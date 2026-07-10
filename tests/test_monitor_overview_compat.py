@@ -85,6 +85,7 @@ class FakeOverviewOpsService:
                 machine_tag="machine-b",
                 group="algo00x",
                 process_name="zProcess",
+                args="--mode z",
                 pid=141976,
                 cpu=0.116,
                 memory=2097.57,
@@ -96,6 +97,7 @@ class FakeOverviewOpsService:
                 machine_tag="machine-c",
                 group="op",
                 process_name="aProcess",
+                args="--mode a",
                 pid=2,
                 cpu=0.2,
                 memory=200.5,
@@ -107,6 +109,7 @@ class FakeOverviewOpsService:
                 machine_tag="machine-a",
                 group="op",
                 process_name="bProcess",
+                args="--mode b",
                 pid=None,
                 cpu=None,
                 memory=None,
@@ -260,6 +263,7 @@ def test_overview_process_list_uses_defaults_and_returns_page_shape():
             {
                 "machine_tag": "machine-a",
                 "process_name": "bProcess",
+                "args": "--mode b",
                 "pid": None,
                 "cpu": None,
                 "mem": None,
@@ -299,6 +303,7 @@ def test_overview_process_list_maps_raw_pid_cpu_mem_values():
     normal = result.details[1]
     assert normal.machine_tag == "machine-b"
     assert normal.process_name == "zProcess"
+    assert normal.args == "--mode z"
     assert normal.pid == 141976
     assert normal.cpu == 0.116
     assert normal.mem == 2097.57

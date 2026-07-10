@@ -80,6 +80,7 @@ class MonitorOverviewOsListResponse(BaseModel):
 class MonitorOverviewProcessItem(BaseModel):
     machine_tag: str
     process_name: str
+    args: str | None = None
     pid: int | None = None
     cpu: float | None = None
     mem: float | None = None
