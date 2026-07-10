@@ -41,6 +41,9 @@ export interface MonitorRow {
   memory?: number;
   mem_usage?: number;
   disk_usage?: number;
+  cpu_alarm?: number | boolean;
+  mem_alarm?: number | boolean;
+  disk_alarm?: number | boolean;
   update_time?: string;
   updated_at?: string;
   collect_time?: string;

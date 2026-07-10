@@ -131,26 +131,45 @@ def test_os_decimal_metric_values_under_threshold_are_normal():
 def test_os_thresholds_use_settings():
     base_cfg = cfg()
 
-    assert FakeOpsService(
+    cpu_alarm = FakeOpsService(
         [base_cfg],
         [state(dat='{"cpu": 0.85, "mem": 0.2, "disk": 0.2}')],
         settings=fake_settings(OPS_CPU_ALARM_THRESHOLD=0.8),
-    ).get_os_states(date="20260625")[0].status == "error"
-    assert FakeOpsService(
+    ).get_os_states(date="20260625")[0]
+    assert cpu_alarm.status == "error"
+    assert cpu_alarm.cpu_alarm == 1
+    assert cpu_alarm.mem_alarm == 0
+    assert cpu_alarm.disk_alarm == 0
+
+    cpu_normal = FakeOpsService(
         [base_cfg],
         [state(dat='{"cpu": 0.85, "mem": 0.2, "disk": 0.2}')],
         settings=fake_settings(OPS_CPU_ALARM_THRESHOLD=0.9),
-    ).get_os_states(date="20260625")[0].status == "normal"
-    assert FakeOpsService(
+    ).get_os_states(date="20260625")[0]
+    assert cpu_normal.status == "normal"
+    assert cpu_normal.cpu_alarm == 0
+    assert cpu_normal.mem_alarm == 0
+    assert cpu_normal.disk_alarm == 0
+
+    mem_alarm = FakeOpsService(
         [base_cfg],
         [state(dat='{"cpu": 0.2, "mem": 0.75, "disk": 0.2}')],
         settings=fake_settings(OPS_MEM_ALARM_THRESHOLD=0.7),
-    ).get_os_states(date="20260625")[0].status == "error"
-    assert FakeOpsService(
+    ).get_os_states(date="20260625")[0]
+    assert mem_alarm.status == "error"
+    assert mem_alarm.cpu_alarm == 0
+    assert mem_alarm.mem_alarm == 1
+    assert mem_alarm.disk_alarm == 0
+
+    disk_alarm = FakeOpsService(
         [base_cfg],
         [state(dat='{"cpu": 0.2, "mem": 0.2, "disk": 0.75}')],
         settings=fake_settings(OPS_DISK_ALARM_THRESHOLD=0.7),
-    ).get_os_states(date="20260625")[0].status == "error"
+    ).get_os_states(date="20260625")[0]
+    assert disk_alarm.status == "error"
+    assert disk_alarm.cpu_alarm == 0
+    assert disk_alarm.mem_alarm == 0
+    assert disk_alarm.disk_alarm == 1
 
 
 def test_os_missing_empty_bad_and_stale_update_time_are_offline_when_work_time_empty():

@@ -289,6 +289,9 @@ class OpsService(BaseService):
         cpu = parse_metric_value(data.get("cpu"))
         mem = parse_metric_value(data.get("mem"))
         disk = parse_metric_value(data.get("disk"))
+        cpu_alarm = int(cpu is not None and cpu >= self.settings.OPS_CPU_ALARM_THRESHOLD)
+        mem_alarm = int(mem is not None and mem >= self.settings.OPS_MEM_ALARM_THRESHOLD)
+        disk_alarm = int(disk is not None and disk >= self.settings.OPS_DISK_ALARM_THRESHOLD)
 
         offline_minutes = self.settings.OPS_OFFLINE_TIMEOUT_MINUTES
         if monitoring_now and is_stale(state.update_time, minutes=offline_minutes, now=now):
@@ -319,6 +322,9 @@ class OpsService(BaseService):
             cpu_usage=cpu,
             memory_usage=mem,
             disk_usage=disk,
+            cpu_alarm=cpu_alarm,
+            mem_alarm=mem_alarm,
+            disk_alarm=disk_alarm,
             status=status,
             message=message,
             update_time=state.update_time,

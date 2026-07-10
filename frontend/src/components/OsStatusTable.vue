@@ -19,7 +19,7 @@
           <a-progress
             size="small"
             :percent="metricBarPercent(record.cpu_usage ?? record.cpu)"
-            :status="metricStatus(record.cpu_usage ?? record.cpu, CPU_ALARM_THRESHOLD)"
+            :status="metricStatus(record.cpu_alarm)"
             :format="() => formatPercent(record.cpu_usage ?? record.cpu)"
           />
         </div>
@@ -30,7 +30,7 @@
           <a-progress
             size="small"
             :percent="metricBarPercent(record.mem_usage ?? record.memory ?? record.mem)"
-            :status="metricStatus(record.mem_usage ?? record.memory ?? record.mem, MEM_ALARM_THRESHOLD)"
+            :status="metricStatus(record.mem_alarm)"
             :format="() => formatPercent(record.mem_usage ?? record.memory ?? record.mem)"
           />
         </div>
@@ -41,7 +41,7 @@
           <a-progress
             size="small"
             :percent="metricBarPercent(record.disk_usage)"
-            :status="metricStatus(record.disk_usage, DISK_ALARM_THRESHOLD)"
+            :status="metricStatus(record.disk_alarm)"
             :format="() => formatPercent(record.disk_usage)"
           />
         </div>
@@ -77,10 +77,6 @@ const columns: TableColumnsType = [
   { title: '更新时间', key: 'update_time', width: 190 },
   { title: '状态', key: 'status', width: 110, align: 'center' },
 ];
-
-const CPU_ALARM_THRESHOLD = 1;
-const MEM_ALARM_THRESHOLD = 0.9;
-const DISK_ALARM_THRESHOLD = 0.9;
 
 const tableRows = computed(() =>
   props.rows.map((row, index) => ({
@@ -122,9 +118,8 @@ function metricBarPercent(value: unknown) {
   return Math.min(percent, 100);
 }
 
-function metricStatus(value: unknown, threshold: number) {
-  const numberValue = metricValue(value);
-  return numberValue !== null && numberValue >= threshold ? 'exception' : 'normal';
+function metricStatus(alarm: unknown) {
+  return flag(alarm) ? 'exception' : 'normal';
 }
 
 function metricPercent(value: unknown) {
@@ -137,6 +132,10 @@ function metricValue(value: unknown) {
   const numberValue = Number(value);
   if (!Number.isFinite(numberValue)) return null;
   return numberValue;
+}
+
+function flag(value: unknown) {
+  return value === true || value === 1 || value === '1';
 }
 </script>
 
