@@ -55,7 +55,11 @@
       <section :ref="setSectionRef('os')" class="scroll-section">
         <SectionCard title="OS 状态" description="机器资源使用率与在线状态">
           <template #extra>
-            <GroupFilter v-model="osGroup" :options="groupOptions" @change="handleOsGroupChange" />
+            <a-space class="section-filter" :size="8">
+              <span class="only-error-label">仅异常</span>
+              <a-switch v-model:checked="osOnlyError" size="small" />
+              <GroupFilter v-model="osGroup" :options="groupOptions" @change="handleOsGroupChange" />
+            </a-space>
           </template>
           <OsStatusTable :rows="visibleOsRows" :loading="osLoading" />
         </SectionCard>
@@ -64,11 +68,15 @@
       <section :ref="setSectionRef('process')" class="scroll-section">
         <SectionCard title="进程状态" description="关键进程资源占用与运行状态">
           <template #extra>
-            <GroupFilter
-              v-model="processGroup"
-              :options="groupOptions"
-              @change="handleProcessGroupChange"
-            />
+            <a-space class="section-filter" :size="8">
+              <span class="only-error-label">仅异常</span>
+              <a-switch v-model:checked="processOnlyError" size="small" />
+              <GroupFilter
+                v-model="processGroup"
+                :options="groupOptions"
+                @change="handleProcessGroupChange"
+              />
+            </a-space>
           </template>
           <ProcessStatusTable :rows="visibleProcessRows" :loading="processLoading" />
         </SectionCard>
@@ -77,7 +85,11 @@
       <section :ref="setSectionRef('logs')" class="scroll-section">
         <SectionCard title="最近日志" description="来自最近日志接口的当天日志记录">
           <template #extra>
-            <GroupFilter v-model="logGroup" :options="groupOptions" @change="handleLogGroupChange" />
+            <a-space class="section-filter" :size="8">
+              <span class="only-error-label">仅异常</span>
+              <a-switch v-model:checked="logOnlyError" size="small" />
+              <GroupFilter v-model="logGroup" :options="groupOptions" @change="handleLogGroupChange" />
+            </a-space>
           </template>
           <RecentLogTable :rows="logRows" :loading="logLoading" :error-message="logErrorMessage" />
         </SectionCard>
@@ -126,7 +138,6 @@ interface StatBlock {
 
 const FIXED_GROUP_OPTIONS: GroupOption[] = [
   { label: '\u5168\u90e8', value: '' },
-  { label: '\u4ec5\u5f02\u5e38', value: '__only_error__' },
 ];
 
 const menuItems: { key: SectionKey; label: string }[] = [
@@ -147,8 +158,9 @@ const logRows = ref<LogRow[]>([]);
 const osGroup = ref('');
 const processGroup = ref('');
 const logGroup = ref('');
-const osRemoteGroup = ref('');
-const processRemoteGroup = ref('');
+const osOnlyError = ref(false);
+const processOnlyError = ref(false);
+const logOnlyError = ref(false);
 const autoRefresh = ref(true);
 const refreshing = ref(false);
 const pageLoading = ref(false);
@@ -168,8 +180,8 @@ const baseListParams: Omit<MonitorListParams, 'group'> = {
   sort_order: '',
 };
 
-const visibleOsRows = computed(() => filterRows(osRows.value, osGroup.value));
-const visibleProcessRows = computed(() => filterRows(processRows.value, processGroup.value));
+const visibleOsRows = computed(() => filterRows(osRows.value, osOnlyError.value));
+const visibleProcessRows = computed(() => filterRows(processRows.value, processOnlyError.value));
 const osAlarmCount = computed(() => countAlarm(osRows.value));
 const processAlarmCount = computed(() => countAlarm(processRows.value));
 const logAlarmCount = computed(() => countAlarm(logRows.value));
@@ -222,6 +234,10 @@ watch(autoRefresh, (enabled) => {
   stopAutoRefresh();
 });
 
+watch(logOnlyError, () => {
+  void loadLogRows();
+});
+
 function setSectionRef(key: SectionKey) {
   return (element: Element | ComponentPublicInstance | null) => {
     if (element instanceof HTMLElement) {
@@ -259,9 +275,9 @@ async function refreshAll() {
   try {
     await Promise.all([
       loadOverviewTotal(),
-      loadOsRows(osRemoteGroup.value),
-      loadProcessRows(processRemoteGroup.value),
-      loadLogRows(logGroup.value),
+      loadOsRows(osGroup.value),
+      loadProcessRows(processGroup.value),
+      loadLogRows(),
     ]);
   } catch (error) {
     const text = error instanceof Error ? error.message : '请求失败';
@@ -297,11 +313,11 @@ async function loadProcessRows(group: string) {
   }
 }
 
-async function loadLogRows(group: string) {
+async function loadLogRows() {
   logLoading.value = true;
   logErrorMessage.value = '';
   try {
-    const data = await fetchOverviewLogList(buildLogListParams(group));
+    const data = await fetchOverviewLogList(buildLogListParams());
     logRows.value = normalizeRows(data);
   } catch (error) {
     const text = error instanceof Error ? error.message : '请求失败';
@@ -313,19 +329,15 @@ async function loadLogRows(group: string) {
 }
 
 async function handleOsGroupChange(value: string) {
-  if (value === '__only_error__') return;
-  osRemoteGroup.value = value;
   await runAction(() => loadOsRows(value));
 }
 
 async function handleProcessGroupChange(value: string) {
-  if (value === '__only_error__') return;
-  processRemoteGroup.value = value;
   await runAction(() => loadProcessRows(value));
 }
 
-async function handleLogGroupChange(value: string) {
-  await loadLogRows(value);
+async function handleLogGroupChange() {
+  await loadLogRows();
 }
 
 async function runAction(action: () => Promise<void>) {
@@ -351,12 +363,10 @@ function stopAutoRefresh() {
   }
 }
 
-function buildLogListParams(group: string): LogListParams {
-  const onlyError = group === '__only_error__';
-
+function buildLogListParams(): LogListParams {
   return {
-    group: onlyError ? '' : group,
-    only_error: onlyError ? 1 : 0,
+    group: logGroup.value,
+    only_error: logOnlyError.value ? 1 : 0,
     level: '',
     date: '',
     page_no: 1,
@@ -384,12 +394,8 @@ function normalizeGroupItems(items?: MonitorGroupItem[]) {
   });
 }
 
-function filterRows(rows: MonitorRow[], group: string) {
-  if (group === '__only_error__') {
-    return rows.filter((row) => isExceptionRow(row));
-  }
-
-  return rows;
+function filterRows(rows: MonitorRow[], onlyError: boolean) {
+  return onlyError ? rows.filter((row) => isExceptionRow(row)) : rows;
 }
 
 function isExceptionRow(row: MonitorRow) {
