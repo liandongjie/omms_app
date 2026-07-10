@@ -29,6 +29,7 @@ from app.utils.ops_parse import is_in_work_time, is_stale, parse_dat, parse_metr
 ABNORMAL_STATUSES = {"warning", "error", "offline", "unknown"}
 LOG_ALARM_LEVELS = {"warn", "error"}
 LOG_SORT_FIELDS = {"log_id", "date", "machine_tag", "log_name", "level", "update_time"}
+RESERVED_GROUP_NAMES = {"\u5168\u90e8", "\u4ec5\u5f02\u5e38"}
 PROCESS_EXTRA_EXCLUDED_KEYS = {"pid", "cpu", "mem", "memory", "args", "pname", "process_name"}
 
 
@@ -207,11 +208,17 @@ class OpsService(BaseService):
         return alarms
 
     def get_groups(self) -> list[GroupItem]:
+        trimmed_group = func.trim(OpsCfg.group_name)
         rows = (
-            self.db.query(OpsCfg.group_name)
-            .filter(OpsCfg.group_name.isnot(None))
+            self.db.query(trimmed_group.label("group_name"))
+            .filter(
+                OpsCfg.status == 1,
+                OpsCfg.group_name.isnot(None),
+                trimmed_group != "",
+                ~trimmed_group.in_(RESERVED_GROUP_NAMES),
+            )
             .distinct()
-            .order_by(OpsCfg.group_name.asc())
+            .order_by(trimmed_group.asc())
             .all()
         )
         return [GroupItem(group=row[0], display_name=row[0]) for row in rows if row[0]]

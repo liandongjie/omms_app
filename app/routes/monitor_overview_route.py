@@ -28,6 +28,17 @@ def get_monitor_overview_total(
         return ErrorResponseModel(msg=str(e))
 
 
+@router.get("/api_omms/monitor/group/list", response_model=ResponseModel)
+def get_monitor_group_list(
+    controller: MonitorOverviewController = Depends(get_monitor_overview_controller),
+):
+    try:
+        return ResponseModel(data=controller.get_group_list(), msg="success")
+    except Exception as e:
+        traceback.print_exc()
+        return ErrorResponseModel(msg=str(e))
+
+
 @router.post("/api_omms/monitor/overview/os/list", response_model=ResponseModel)
 def post_monitor_overview_os_list(
     request: MonitorOverviewOsListRequest | None = Body(default=None),

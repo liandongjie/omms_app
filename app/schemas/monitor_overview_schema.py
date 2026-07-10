@@ -49,6 +49,15 @@ class MonitorOverviewTotalResponse(BaseModel):
     log: MonitorOverviewCard
 
 
+class MonitorOverviewGroupItem(BaseModel):
+    group: str
+    display_name: str
+
+
+class MonitorOverviewGroupListResponse(BaseModel):
+    details: list[MonitorOverviewGroupItem]
+
+
 class MonitorOverviewOsItem(BaseModel):
     machine_tag: str
     group: str | None = None

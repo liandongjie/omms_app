@@ -701,6 +701,17 @@ def cfg_row(machine_tag, group_name):
     )
 
 
+def process_cfg_row(machine_tag, group_name, status=1):
+    return OpsCfg(
+        type="process",
+        machine_tag=machine_tag,
+        group_name=group_name,
+        cfg_key="proc",
+        value="",
+        status=status,
+    )
+
+
 def seed_log_rows(db):
     db.add_all([
         log_row(1, machine_tag="m1", level="info"),
@@ -771,6 +782,67 @@ def test_get_logs_supports_explicit_sort_and_pagination():
     assert result.page == 2
     assert result.page_size == 1
     assert result.items[0].machine_tag == "m1"
+
+
+def test_get_groups_returns_active_trimmed_distinct_sorted_groups():
+    service, db = make_log_service()
+    db.add_all([
+        cfg_row("m1", " op "),
+        cfg_row("m2", "algo00x"),
+        cfg_row("m3", "op"),
+        cfg_row("m4", ""),
+        cfg_row("m5", "   "),
+        cfg_row("m6", "\u5168\u90e8"),
+        cfg_row("m7", " \u4ec5\u5f02\u5e38 "),
+        process_cfg_row("m8", "fut"),
+        process_cfg_row("m9", "backup", status=0),
+    ])
+    db.commit()
+
+    result = service.get_groups()
+
+    assert [item.model_dump() for item in result] == [
+        {"group": "algo00x", "display_name": "algo00x"},
+        {"group": "fut", "display_name": "fut"},
+        {"group": "op", "display_name": "op"},
+    ]
+
+
+class FakeGroupQuery:
+    def __init__(self):
+        self.filters = []
+
+    def filter(self, *args):
+        self.filters.extend(args)
+        return self
+
+    def distinct(self):
+        return self
+
+    def order_by(self, *args):
+        return self
+
+    def all(self):
+        return []
+
+
+class FakeGroupDb:
+    def __init__(self):
+        self.query_obj = FakeGroupQuery()
+
+    def query(self, *args):
+        return self.query_obj
+
+
+def test_get_groups_filters_null_group_values():
+    db = FakeGroupDb()
+    service = OpsService(db, settings=fake_settings())
+
+    result = service.get_groups()
+
+    assert result == []
+    assert any("IS NOT NULL" in str(item) for item in db.query_obj.filters)
+
 
 def test_log_error_warn_info_stats():
     service = OpsService(FakeLevelDb([("error",), ("warn",), ("info",)]), settings=fake_settings())
