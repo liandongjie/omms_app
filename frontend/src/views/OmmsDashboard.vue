@@ -55,7 +55,7 @@
       <section :ref="setSectionRef('os')" class="scroll-section">
         <SectionCard title="OS 状态" description="机器资源使用率与在线状态">
           <template #extra>
-            <GroupFilter v-model="osGroup" :options="GROUP_OPTIONS" @change="handleOsGroupChange" />
+            <GroupFilter v-model="osGroup" :options="groupOptions" @change="handleOsGroupChange" />
           </template>
           <OsStatusTable :rows="visibleOsRows" :loading="osLoading" />
         </SectionCard>
@@ -66,7 +66,7 @@
           <template #extra>
             <GroupFilter
               v-model="processGroup"
-              :options="GROUP_OPTIONS"
+              :options="groupOptions"
               @change="handleProcessGroupChange"
             />
           </template>
@@ -77,7 +77,7 @@
       <section :ref="setSectionRef('logs')" class="scroll-section">
         <SectionCard title="最近日志" description="来自最近日志接口的当天日志记录">
           <template #extra>
-            <GroupFilter v-model="logGroup" :options="GROUP_OPTIONS" @change="handleLogGroupChange" />
+            <GroupFilter v-model="logGroup" :options="groupOptions" @change="handleLogGroupChange" />
           </template>
           <RecentLogTable :rows="logRows" :loading="logLoading" :error-message="logErrorMessage" />
         </SectionCard>
@@ -90,12 +90,14 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch, type ComponentPublicInstance } from 'vue';
 import { message } from 'ant-design-vue';
 import {
+  fetchMonitorGroupList,
   fetchOverviewLogList,
   fetchOverviewOsList,
   fetchOverviewProcessList,
   fetchOverviewTotal,
   type LogListParams,
   type LogRow,
+  type MonitorGroupItem,
   type MonitorListData,
   type MonitorListParams,
   type MonitorRow,
@@ -122,14 +124,9 @@ interface StatBlock {
   error: number;
 }
 
-const GROUP_OPTIONS: GroupOption[] = [
-  { label: '全部', value: '' },
-  { label: '仅异常', value: '__only_error__' },
-  { label: '股票组', value: 'stock' },
-  { label: 'CTA组', value: 'algo00x' },
-  { label: '套利组', value: 'fut' },
-  { label: '公共服务组', value: 'op' },
-  { label: '备机组', value: 'backup' },
+const FIXED_GROUP_OPTIONS: GroupOption[] = [
+  { label: '\u5168\u90e8', value: '' },
+  { label: '\u4ec5\u5f02\u5e38', value: '__only_error__' },
 ];
 
 const menuItems: { key: SectionKey; label: string }[] = [
@@ -142,6 +139,8 @@ const menuItems: { key: SectionKey; label: string }[] = [
 const AUTO_REFRESH_INTERVAL_MS = 5000;
 
 const overviewTotal = ref<OverviewTotalData>({});
+const groupItems = ref<MonitorGroupItem[]>([]);
+const groupLoading = ref(false);
 const osRows = ref<MonitorRow[]>([]);
 const processRows = ref<MonitorRow[]>([]);
 const logRows = ref<LogRow[]>([]);
@@ -174,6 +173,13 @@ const visibleProcessRows = computed(() => filterRows(processRows.value, processG
 const osAlarmCount = computed(() => countAlarm(osRows.value));
 const processAlarmCount = computed(() => countAlarm(processRows.value));
 const logAlarmCount = computed(() => countAlarm(logRows.value));
+const groupOptions = computed<GroupOption[]>(() => [
+  ...FIXED_GROUP_OPTIONS,
+  ...groupItems.value.map((item) => ({
+    label: item.display_name || item.group,
+    value: item.group,
+  })),
+]);
 
 const statCards = computed<StatBlock[]>(() => [
   resolveStatBlock('OS 状态', ['os', 'os_status', 'osStatus', 'os_total', 'osTotal'], {
@@ -198,6 +204,7 @@ const statCards = computed<StatBlock[]>(() => [
 ]);
 
 onMounted(() => {
+  loadGroupItems();
   refreshAll();
   startAutoRefresh();
 });
@@ -226,6 +233,20 @@ function setSectionRef(key: SectionKey) {
 function scrollToSection(key: SectionKey) {
   activeSection.value = key;
   sectionRefs.get(key)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function loadGroupItems() {
+  groupLoading.value = true;
+
+  try {
+    const data = await fetchMonitorGroupList();
+    groupItems.value = normalizeGroupItems(data.details);
+  } catch (error) {
+    groupItems.value = [];
+    console.warn('Failed to load monitor groups', error);
+  } finally {
+    groupLoading.value = false;
+  }
 }
 
 async function refreshAll() {
@@ -348,6 +369,19 @@ function buildLogListParams(group: string): LogListParams {
 function normalizeRows<T>(data: MonitorListData<T> | T[]) {
   if (Array.isArray(data)) return data;
   return data.details || data.list || data.records || data.items || data.rows || data.data || [];
+}
+
+function normalizeGroupItems(items?: MonitorGroupItem[]) {
+  const seen = new Set<string>();
+
+  return (items || []).flatMap((item) => {
+    const group = item.group?.trim();
+    if (!group || seen.has(group)) return [];
+
+    seen.add(group);
+    const displayName = item.display_name?.trim() || group;
+    return [{ group, display_name: displayName }];
+  });
 }
 
 function filterRows(rows: MonitorRow[], group: string) {
