@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -52,6 +54,7 @@ class ProcessStateItem(BaseModel):
     status: str
     message: str
     update_time: str | None = None
+    extra: dict[str, Any] | None = None
 
 
 class LogItem(BaseModel):

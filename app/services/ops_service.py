@@ -29,6 +29,7 @@ from app.utils.ops_parse import is_in_work_time, is_stale, parse_dat, parse_metr
 ABNORMAL_STATUSES = {"warning", "error", "offline", "unknown"}
 LOG_ALARM_LEVELS = {"warn", "error"}
 LOG_SORT_FIELDS = {"log_id", "date", "machine_tag", "log_name", "level", "update_time"}
+PROCESS_EXTRA_EXCLUDED_KEYS = {"pid", "cpu", "mem", "memory", "args", "pname", "process_name"}
 
 
 class OpsService(BaseService):
@@ -387,6 +388,7 @@ class OpsService(BaseService):
             status=status,
             message=message,
             update_time=state.update_time,
+            extra=self._extract_process_extra(data),
         )
 
     def _build_state_only_process_item(self, state: OpsState) -> ProcessStateItem:
@@ -414,7 +416,17 @@ class OpsService(BaseService):
             status=status,
             message=message,
             update_time=state.update_time,
+            extra=self._extract_process_extra(data),
         )
+
+    @staticmethod
+    def _extract_process_extra(data: dict[str, Any]) -> dict[str, Any] | None:
+        extra = {
+            key: value
+            for key, value in data.items()
+            if key not in PROCESS_EXTRA_EXCLUDED_KEYS
+        }
+        return extra or None
 
     @staticmethod
     def _normalize_process_args(value: Any) -> str | None:

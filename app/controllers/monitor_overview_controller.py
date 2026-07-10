@@ -192,6 +192,7 @@ class MonitorOverviewController(BaseController):
             is_configured=item.is_configured,
             is_offline=1 if item.status == "offline" else 0,
             is_alarm=1 if item.status in ABNORMAL_STATUSES else 0,
+            extra=item.extra,
         )
 
     @staticmethod
