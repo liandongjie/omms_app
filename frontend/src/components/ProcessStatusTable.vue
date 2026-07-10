@@ -45,7 +45,7 @@ const props = defineProps<{
 }>();
 
 const columns: TableColumnsType = [
-  { title: '机器标识', key: 'machine', width: 170 },
+  { title: '机器标识', key: 'machine', width: 150 },
   { title: '进程名', key: 'process_name', width: 170 },
   { title: 'PID', key: 'pid', width: 100 },
   { title: 'CPU (%)', key: 'cpu', width: 110 },

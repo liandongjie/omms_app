@@ -15,33 +15,36 @@
         {{ record.group || '-' }}
       </template>
       <template v-else-if="column.key === 'cpu_usage'">
-        <a-progress
-          v-if="hasMetric(record.cpu_usage ?? record.cpu)"
-          size="small"
-          :percent="metricBarPercent(record.cpu_usage ?? record.cpu)"
-          :status="metricStatus(record.cpu_usage ?? record.cpu, CPU_ALARM_THRESHOLD)"
-          :format="() => formatPercent(record.cpu_usage ?? record.cpu)"
-        />
+        <div v-if="hasMetric(record.cpu_usage ?? record.cpu)" class="os-metric-progress">
+          <a-progress
+            size="small"
+            :percent="metricBarPercent(record.cpu_usage ?? record.cpu)"
+            :status="metricStatus(record.cpu_usage ?? record.cpu, CPU_ALARM_THRESHOLD)"
+            :format="() => formatPercent(record.cpu_usage ?? record.cpu)"
+          />
+        </div>
         <span v-else>-</span>
       </template>
       <template v-else-if="column.key === 'mem_usage'">
-        <a-progress
-          v-if="hasMetric(record.mem_usage ?? record.memory ?? record.mem)"
-          size="small"
-          :percent="metricBarPercent(record.mem_usage ?? record.memory ?? record.mem)"
-          :status="metricStatus(record.mem_usage ?? record.memory ?? record.mem, MEM_ALARM_THRESHOLD)"
-          :format="() => formatPercent(record.mem_usage ?? record.memory ?? record.mem)"
-        />
+        <div v-if="hasMetric(record.mem_usage ?? record.memory ?? record.mem)" class="os-metric-progress">
+          <a-progress
+            size="small"
+            :percent="metricBarPercent(record.mem_usage ?? record.memory ?? record.mem)"
+            :status="metricStatus(record.mem_usage ?? record.memory ?? record.mem, MEM_ALARM_THRESHOLD)"
+            :format="() => formatPercent(record.mem_usage ?? record.memory ?? record.mem)"
+          />
+        </div>
         <span v-else>-</span>
       </template>
       <template v-else-if="column.key === 'disk_usage'">
-        <a-progress
-          v-if="hasMetric(record.disk_usage)"
-          size="small"
-          :percent="metricBarPercent(record.disk_usage)"
-          :status="metricStatus(record.disk_usage, DISK_ALARM_THRESHOLD)"
-          :format="() => formatPercent(record.disk_usage)"
-        />
+        <div v-if="hasMetric(record.disk_usage)" class="os-metric-progress">
+          <a-progress
+            size="small"
+            :percent="metricBarPercent(record.disk_usage)"
+            :status="metricStatus(record.disk_usage, DISK_ALARM_THRESHOLD)"
+            :format="() => formatPercent(record.disk_usage)"
+          />
+        </div>
         <span v-else>-</span>
       </template>
       <template v-else-if="column.key === 'update_time'">
@@ -136,3 +139,10 @@ function metricValue(value: unknown) {
   return numberValue;
 }
 </script>
+
+<style scoped>
+.os-metric-progress {
+  width: 120px;
+  max-width: 100%;
+}
+</style>
