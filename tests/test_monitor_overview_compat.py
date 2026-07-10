@@ -68,6 +68,9 @@ class FakeOverviewOpsService:
                 cpu_usage=0.65,
                 memory_usage=0.86,
                 disk_usage=0.72,
+                cpu_alarm=0,
+                mem_alarm=1,
+                disk_alarm=0,
                 update_time="2026-07-02 16:20:30",
                 status="normal",
                 message="ok",
@@ -78,6 +81,9 @@ class FakeOverviewOpsService:
                 cpu_usage=0.1,
                 memory_usage=0.2,
                 disk_usage=0.3,
+                cpu_alarm=0,
+                mem_alarm=0,
+                disk_alarm=0,
                 update_time="2026-07-02 16:10:30",
                 status="offline",
                 message="offline",
@@ -240,6 +246,9 @@ def test_overview_os_list_uses_defaults_and_returns_page_shape():
                 "cpu_usage": 0.65,
                 "mem_usage": 0.86,
                 "disk_usage": 0.72,
+                "cpu_alarm": 0,
+                "mem_alarm": 1,
+                "disk_alarm": 0,
                 "update_time": "2026-07-02 16:20:30",
                 "is_offline": 0,
                 "is_alarm": 0,
@@ -260,6 +269,9 @@ def test_overview_os_list_supports_group_and_pagination():
     assert result.details[0].group == "op"
     assert result.details[0].is_offline == 1
     assert result.details[0].is_alarm == 1
+    assert result.details[0].cpu_alarm == 0
+    assert result.details[0].mem_alarm == 0
+    assert result.details[0].disk_alarm == 0
     assert service.os_state_calls == [{"group": "op"}]
 
 
