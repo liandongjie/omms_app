@@ -281,6 +281,51 @@ def test_process_memory_field_can_use_memory_alias():
     assert item.cpu == 0.116
     assert item.memory == 2097.57
 
+
+def test_process_args_use_state_value_even_when_dat_args_exists():
+    process_cfg = cfg(cfg_type="process", cfg_key="tlBinTradeLite", value="cfg.yaml")
+    row = state(
+        state_type="process",
+        state_key="./bin/tlBinTradeLite",
+        value="cfg.yaml state.yaml",
+        dat="{'pid': 103833, 'cpu': 0.116, 'mem': 2097.57, 'args': ['--env', 'prod']}",
+    )
+
+    item = FakeOpsService([process_cfg], [row]).get_process_states(date="20260625")[0]
+
+    assert item.args == "cfg.yaml state.yaml"
+    assert item.pid == 103833
+    assert item.cpu == 0.116
+    assert item.memory == 2097.57
+    assert item.status == "normal"
+
+
+def test_process_args_use_state_value_and_missing_state_returns_none():
+    process_cfg = cfg(cfg_type="process", cfg_key="tlBinTradeLite", value="cfg.yaml")
+    row = state(
+        state_type="process",
+        state_key="./bin/tlBinTradeLite",
+        value="cfg.yaml state.yaml",
+        dat="{'pid': 103833}",
+    )
+
+    matched = FakeOpsService([process_cfg], [row]).get_process_states(date="20260625")[0]
+    missing_state = FakeOpsService([process_cfg], []).get_process_states(date="20260625")[0]
+
+    empty_value_cfg = cfg(cfg_type="process", cfg_key="tlBinTradeLite", value="")
+    empty_value_row = state(
+        state_type="process",
+        state_key="./bin/tlBinTradeLite",
+        value="",
+        dat="{'pid': 103833}",
+    )
+    empty_value = FakeOpsService([empty_value_cfg], [empty_value_row]).get_process_states(date="20260625")[0]
+
+    assert matched.args == "cfg.yaml state.yaml"
+    assert missing_state.args is None
+    assert empty_value.args is None
+
+
 def test_process_stale_state_is_offline_only_inside_work_time():
     row = state(
         state_type="process",
