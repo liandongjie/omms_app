@@ -79,12 +79,14 @@ class MonitorOverviewOsListResponse(BaseModel):
 
 class MonitorOverviewProcessItem(BaseModel):
     machine_tag: str
+    group: str | None = None
     process_name: str
     args: str | None = None
     pid: int | None = None
     cpu: float | None = None
     mem: float | None = None
     update_time: str | None = None
+    is_configured: bool = True
     is_offline: int = 0
     is_alarm: int = 0
 

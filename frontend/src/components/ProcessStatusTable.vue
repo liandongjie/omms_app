@@ -14,6 +14,11 @@
       <template v-else-if="column.key === 'process_name'">
         {{ getProcessName(record) }}
       </template>
+      <template v-else-if="column.key === 'config'">
+        <a-tag :bordered="false" :color="isConfigured(record) ? 'green' : 'orange'">
+          {{ isConfigured(record) ? '已配置' : '未配置' }}
+        </a-tag>
+      </template>
       <template v-else-if="column.key === 'args'">
         <span class="process-args-cell" :title="getArgsText(record)">{{ getArgsText(record) }}</span>
       </template>
@@ -50,6 +55,7 @@ const props = defineProps<{
 const columns: TableColumnsType = [
   { title: '机器标识', key: 'machine', width: 150 },
   { title: '进程名', key: 'process_name', width: 170 },
+  { title: '配置', key: 'config', width: 100, align: 'center' },
   { title: 'args', key: 'args', width: 260 },
   { title: 'PID', key: 'pid', width: 100 },
   { title: 'CPU (%)', key: 'cpu', width: 110 },
@@ -86,6 +92,10 @@ function getProcessName(row: MonitorRow) {
 function getArgsText(row: MonitorRow) {
   if (row.args === null || row.args === undefined || row.args === '') return '-';
   return String(row.args);
+}
+
+function isConfigured(row: MonitorRow) {
+  return row.is_configured !== false;
 }
 
 function getUpdateTime(row: MonitorRow) {

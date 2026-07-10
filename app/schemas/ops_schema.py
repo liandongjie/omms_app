@@ -48,6 +48,7 @@ class ProcessStateItem(BaseModel):
     pid: int | None = None
     cpu: float | None = None
     memory: float | None = None
+    is_configured: bool = True
     status: str
     message: str
     update_time: str | None = None

@@ -70,12 +70,33 @@ class OpsService(BaseService):
         items = [self._build_os_item(cfg, state_map.get((cfg.machine_tag, cfg.cfg_key))) for cfg in cfgs]
         return self._filter_error_items(items, only_error)
 
-    def get_process_states(self, group: str | None = None, only_error: bool = False, date: str | None = None) -> list[ProcessStateItem]:
+    def get_process_states(
+        self,
+        group: str | None = None,
+        only_error: bool = False,
+        date: str | None = None,
+        include_state_only: bool = False,
+    ) -> list[ProcessStateItem]:
         target_date = date or today_yyyymmdd()
-        cfgs = self._get_active_cfgs("process", group)
+        is_all_group = self._is_all_group(group)
+        cfgs = self._get_active_cfgs("process", None if is_all_group else group)
         states = self._get_states("process", target_date)
 
-        items = [self._build_process_item(cfg, self._find_process_state(cfg, states)) for cfg in cfgs]
+        items = []
+        matched_state_ids = set()
+        for cfg in cfgs:
+            state = self._find_process_state(cfg, states)
+            if state is not None:
+                matched_state_ids.add(self._state_identity(state))
+            items.append(self._build_process_item(cfg, state))
+
+        if include_state_only and is_all_group:
+            items.extend(
+                self._build_state_only_process_item(state)
+                for state in states
+                if self._state_identity(state) not in matched_state_ids
+            )
+
         return self._filter_error_items(items, only_error)
 
     def get_logs(
@@ -316,6 +337,14 @@ class OpsService(BaseService):
             return state
         return None
 
+    @staticmethod
+    def _state_identity(state: OpsState) -> tuple:
+        return (state.date, state.type, state.machine_tag, state.state_key, state.value)
+
+    @staticmethod
+    def _is_all_group(group: str | None) -> bool:
+        return group is None or not group.strip() or group.strip().lower() == "all"
+
     def _build_process_item(self, cfg: OpsCfg, state: OpsState | None) -> ProcessStateItem:
         now = self._now()
         monitoring_now = is_in_work_time(cfg.work_time, now=now)
@@ -327,6 +356,7 @@ class OpsService(BaseService):
                 machine_tag=cfg.machine_tag,
                 group=cfg.group_name,
                 process_name=cfg.cfg_key,
+                is_configured=True,
                 status=status,
                 message=message,
             )
@@ -353,6 +383,34 @@ class OpsService(BaseService):
             pid=data.get("pid"),
             cpu=data.get("cpu"),
             memory=data.get("mem", data.get("memory")),
+            is_configured=True,
+            status=status,
+            message=message,
+            update_time=state.update_time,
+        )
+
+    def _build_state_only_process_item(self, state: OpsState) -> ProcessStateItem:
+        now = self._now()
+        offline_minutes = self.settings.OPS_OFFLINE_TIMEOUT_MINUTES
+        data = parse_dat(state.dat)
+        process_name = self._normalize_process_name(data.get("pname")) or state.state_key or ""
+
+        if is_stale(state.update_time, minutes=offline_minutes, now=now):
+            status = "offline"
+            message = f"process state not updated within {offline_minutes} minutes"
+        else:
+            status = "normal"
+            message = "normal"
+
+        return ProcessStateItem(
+            machine_tag=state.machine_tag,
+            group=None,
+            process_name=process_name,
+            args=self._normalize_process_args(state.value),
+            pid=data.get("pid"),
+            cpu=data.get("cpu"),
+            memory=data.get("mem", data.get("memory")),
+            is_configured=False,
             status=status,
             message=message,
             update_time=state.update_time,
@@ -360,6 +418,13 @@ class OpsService(BaseService):
 
     @staticmethod
     def _normalize_process_args(value: Any) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+    @staticmethod
+    def _normalize_process_name(value: Any) -> str | None:
         if value is None:
             return None
         text = str(value).strip()
