@@ -401,6 +401,119 @@ def test_process_empty_cfg_value_does_not_filter_by_state_value():
     assert item.pid == 103833
 
 
+def test_process_state_only_is_excluded_by_default_and_added_for_all_group():
+    process_cfg = cfg(
+        cfg_type="process",
+        machine_tag="configured-machine",
+        group_name="op",
+        cfg_key="tlBinTradeLite",
+        value="cfg.yaml",
+    )
+    matching_state = state(
+        state_type="process",
+        machine_tag="configured-machine",
+        state_key="./bin/tlBinTradeLite",
+        value="cfg.yaml state.yaml",
+        dat="{'pid': 101, 'cpu': 0.1, 'mem': 200.5}",
+    )
+    state_only = state(
+        state_type="process",
+        machine_tag="state-only-machine",
+        state_key="./bin/unconfigured",
+        value="state-only args",
+        dat="{'pname': 'unconfiguredProc', 'pid': 202, 'cpu': 0.2, 'mem': 300.5}",
+    )
+    service = FakeOpsService([process_cfg], [matching_state, state_only])
+
+    default_items = service.get_process_states(date="20260625")
+    all_items = service.get_process_states(date="20260625", include_state_only=True)
+
+    assert [item.process_name for item in default_items] == ["tlBinTradeLite"]
+    assert default_items[0].is_configured is True
+    assert [item.process_name for item in all_items] == ["tlBinTradeLite", "unconfiguredProc"]
+
+    unconfigured = all_items[1]
+    assert unconfigured.machine_tag == "state-only-machine"
+    assert unconfigured.group is None
+    assert unconfigured.args == "state-only args"
+    assert unconfigured.pid == 202
+    assert unconfigured.cpu == 0.2
+    assert unconfigured.memory == 300.5
+    assert unconfigured.status == "normal"
+    assert unconfigured.is_configured is False
+
+
+def test_process_state_only_is_not_added_for_specific_group():
+    process_cfg = cfg(
+        cfg_type="process",
+        machine_tag="configured-machine",
+        group_name="op",
+        cfg_key="tlBinTradeLite",
+        value="cfg.yaml",
+    )
+    state_only = state(
+        state_type="process",
+        machine_tag="state-only-machine",
+        state_key="./bin/unconfigured",
+        value="state-only args",
+        dat="{'pid': 202}",
+    )
+
+    items = FakeOpsService([process_cfg], [state_only]).get_process_states(
+        group="op",
+        date="20260625",
+        include_state_only=True,
+    )
+
+    assert len(items) == 1
+    assert items[0].machine_tag == "configured-machine"
+    assert items[0].is_configured is True
+
+
+def test_process_state_only_only_error_filter_respects_update_time():
+    fresh_state_only = state(
+        state_type="process",
+        machine_tag="fresh-state-only",
+        state_key="./bin/fresh",
+        value="fresh args",
+        dat="{'pname': 'freshProc', 'pid': 1}",
+    )
+    stale_state_only = state(
+        state_type="process",
+        machine_tag="stale-state-only",
+        state_key="./bin/stale",
+        value="stale args",
+        dat="{'pname': 'staleProc', 'pid': 2}",
+        update_time=stale_time(),
+    )
+
+    items = FakeOpsService([], [fresh_state_only, stale_state_only]).get_process_states(
+        date="20260625",
+        only_error=True,
+        include_state_only=True,
+    )
+
+    assert [item.process_name for item in items] == ["staleProc"]
+    assert items[0].status == "offline"
+    assert items[0].is_configured is False
+    assert items[0].args == "stale args"
+
+
+def test_process_overview_total_does_not_include_state_only():
+    state_only = state(
+        state_type="process",
+        machine_tag="state-only-machine",
+        state_key="./bin/unconfigured",
+        value="state-only args",
+        dat="{'pid': 202}",
+    )
+
+    overview = FakeOpsService([], [state_only]).get_overview(date="20260625")
+
+    assert overview.process.total == 0
+    assert overview.process.alarm_count == 0
+
+
 def test_process_overview_counts_stale_alarm_only_inside_work_time():
     row = state(
         state_type="process",

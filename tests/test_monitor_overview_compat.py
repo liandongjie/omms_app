@@ -78,8 +78,8 @@ class FakeOverviewOpsService:
             return [item for item in items if item.group == group]
         return items
 
-    def get_process_states(self, group=None):
-        self.process_state_calls.append({"group": group})
+    def get_process_states(self, group=None, include_state_only=False):
+        self.process_state_calls.append({"group": group, "include_state_only": include_state_only})
         items = [
             ProcessStateItem(
                 machine_tag="machine-b",
@@ -262,18 +262,20 @@ def test_overview_process_list_uses_defaults_and_returns_page_shape():
         "details": [
             {
                 "machine_tag": "machine-a",
+                "group": "op",
                 "process_name": "bProcess",
                 "args": "--mode b",
                 "pid": None,
                 "cpu": None,
                 "mem": None,
                 "update_time": None,
+                "is_configured": True,
                 "is_offline": 0,
                 "is_alarm": 1,
             }
         ],
     }
-    assert service.process_state_calls == [{"group": None}]
+    assert service.process_state_calls == [{"group": None, "include_state_only": True}]
 
 
 def test_overview_process_list_supports_group_and_status_flags():
@@ -289,7 +291,7 @@ def test_overview_process_list_supports_group_and_status_flags():
     assert result.details[0].is_alarm == 1
     assert result.details[1].is_offline == 0
     assert result.details[1].is_alarm == 1
-    assert service.process_state_calls == [{"group": "op"}]
+    assert service.process_state_calls == [{"group": "op", "include_state_only": True}]
 
 
 def test_overview_process_list_maps_raw_pid_cpu_mem_values():
@@ -302,11 +304,13 @@ def test_overview_process_list_maps_raw_pid_cpu_mem_values():
 
     normal = result.details[1]
     assert normal.machine_tag == "machine-b"
+    assert normal.group == "algo00x"
     assert normal.process_name == "zProcess"
     assert normal.args == "--mode z"
     assert normal.pid == 141976
     assert normal.cpu == 0.116
     assert normal.mem == 2097.57
+    assert normal.is_configured is True
     assert normal.is_offline == 0
     assert normal.is_alarm == 0
 

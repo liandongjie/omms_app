@@ -23,7 +23,7 @@ export interface LogListParams extends MonitorListParams {
 export interface MonitorRow {
   id?: string | number;
   machine_tag?: string;
-  group?: string;
+  group?: string | null;
   machine_id?: string;
   machine?: string;
   host?: string;
@@ -47,6 +47,7 @@ export interface MonitorRow {
   timestamp?: string;
   is_alarm?: number | boolean;
   is_offline?: number | boolean;
+  is_configured?: boolean;
   [key: string]: unknown;
 }
 

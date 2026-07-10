@@ -115,7 +115,7 @@ class MonitorOverviewController(BaseController):
 
         items = [
             self._to_monitor_process_item(item)
-            for item in self.ops_service.get_process_states(group=group)
+            for item in self.ops_service.get_process_states(group=group, include_state_only=True)
         ]
         items = self._sort_process_items(items, request.sort_by or "", request.sort_order or "")
 
@@ -182,12 +182,14 @@ class MonitorOverviewController(BaseController):
     def _to_monitor_process_item(item) -> MonitorOverviewProcessItem:
         return MonitorOverviewProcessItem(
             machine_tag=item.machine_tag,
+            group=item.group,
             process_name=item.process_name,
             args=item.args,
             pid=item.pid,
             cpu=item.cpu,
             mem=item.memory,
             update_time=item.update_time,
+            is_configured=item.is_configured,
             is_offline=1 if item.status == "offline" else 0,
             is_alarm=1 if item.status in ABNORMAL_STATUSES else 0,
         )
