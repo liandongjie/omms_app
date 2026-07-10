@@ -79,6 +79,15 @@ export interface OverviewTotalData {
   [key: string]: unknown;
 }
 
+export interface MonitorGroupItem {
+  group: string;
+  display_name: string;
+}
+
+export interface MonitorGroupListData {
+  details?: MonitorGroupItem[];
+}
+
 const http = axios.create({
   timeout: 10000,
 });
@@ -100,6 +109,10 @@ async function requestData<T>(url: string, method: 'GET' | 'POST', data?: unknow
 
 export function fetchOverviewTotal() {
   return requestData<OverviewTotalData>('/api_omms/monitor/overview/total', 'GET');
+}
+
+export function fetchMonitorGroupList() {
+  return requestData<MonitorGroupListData>('/api_omms/monitor/group/list', 'GET');
 }
 
 export function fetchOverviewOsList(params: MonitorListParams) {
