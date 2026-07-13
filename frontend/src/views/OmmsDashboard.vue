@@ -78,7 +78,54 @@
               />
             </a-space>
           </template>
-          <ProcessStatusTable :rows="visibleProcessRows" :loading="processLoading" />
+          <div v-if="processGroup === ''" class="process-group-list">
+            <div v-if="processLoading || opProcessRows.length" class="process-group-block">
+              <div class="process-group-header">
+                <div>
+                  <div class="process-group-title">op</div>
+                  <div class="process-group-desc">普通运维进程</div>
+                </div>
+                <span class="process-group-count">{{ opProcessRows.length }} 条</span>
+              </div>
+              <ProcessStatusTable compact :rows="opProcessRows" :loading="processLoading" />
+            </div>
+            <div v-if="processLoading || algoProcessRows.length" class="process-group-block">
+              <div class="process-group-header">
+                <div>
+                  <div class="process-group-title">algo00x</div>
+                  <div class="process-group-desc">算法交易进程</div>
+                </div>
+                <span class="process-group-count">{{ algoProcessRows.length }} 条</span>
+              </div>
+              <AlgoProcessStatusTable :rows="algoProcessRows" :loading="processLoading" />
+            </div>
+            <div v-if="otherProcessRows.length" class="process-group-block">
+              <div class="process-group-header">
+                <div>
+                  <div class="process-group-title">其他分组</div>
+                  <div class="process-group-desc">未配置专用列的进程</div>
+                </div>
+                <span class="process-group-count">{{ otherProcessRows.length }} 条</span>
+              </div>
+              <ProcessStatusTable compact :rows="otherProcessRows" :loading="processLoading" />
+            </div>
+            <div v-if="ungroupedProcessRows.length" class="process-group-block">
+              <div class="process-group-header">
+                <div>
+                  <div class="process-group-title">未分组</div>
+                  <div class="process-group-desc">未匹配到 group 的上报进程</div>
+                </div>
+                <span class="process-group-count">{{ ungroupedProcessRows.length }} 条</span>
+              </div>
+              <ProcessStatusTable compact :rows="ungroupedProcessRows" :loading="processLoading" />
+            </div>
+          </div>
+          <AlgoProcessStatusTable
+            v-else-if="normalizedProcessGroup === 'algo00x'"
+            :rows="algoProcessRows"
+            :loading="processLoading"
+          />
+          <ProcessStatusTable v-else :rows="visibleProcessRows" :loading="processLoading" />
         </SectionCard>
       </section>
 
@@ -116,6 +163,7 @@ import {
   type OverviewTotalData,
 } from '../api/omms';
 import GroupFilter from '../components/GroupFilter.vue';
+import AlgoProcessStatusTable from '../components/AlgoProcessStatusTable.vue';
 import OsStatusTable from '../components/OsStatusTable.vue';
 import ProcessStatusTable from '../components/ProcessStatusTable.vue';
 import RecentLogTable from '../components/RecentLogTable.vue';
@@ -182,6 +230,20 @@ const baseListParams: Omit<MonitorListParams, 'group'> = {
 
 const visibleOsRows = computed(() => filterRows(osRows.value, osOnlyError.value));
 const visibleProcessRows = computed(() => filterRows(processRows.value, processOnlyError.value));
+const normalizedProcessGroup = computed(() => processGroup.value.trim());
+const opProcessRows = computed(() => visibleProcessRows.value.filter((row) => normalizeGroup(row.group) === 'op'));
+const algoProcessRows = computed(() =>
+  visibleProcessRows.value.filter((row) => normalizeGroup(row.group) === 'algo00x'),
+);
+const otherProcessRows = computed(() =>
+  visibleProcessRows.value.filter((row) => {
+    const group = normalizeGroup(row.group);
+    return Boolean(group) && group !== 'op' && group !== 'algo00x';
+  }),
+);
+const ungroupedProcessRows = computed(() =>
+  visibleProcessRows.value.filter((row) => !normalizeGroup(row.group)),
+);
 const osAlarmCount = computed(() => countAlarm(osRows.value));
 const processAlarmCount = computed(() => countAlarm(processRows.value));
 const logAlarmCount = computed(() => countAlarm(logRows.value));
@@ -394,6 +456,10 @@ function normalizeGroupItems(items?: MonitorGroupItem[]) {
   });
 }
 
+function normalizeGroup(group: unknown) {
+  return String(group ?? '').trim();
+}
+
 function filterRows(rows: MonitorRow[], onlyError: boolean) {
   return onlyError ? rows.filter((row) => isExceptionRow(row)) : rows;
 }
@@ -449,3 +515,45 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 </script>
+
+<style scoped>
+.process-group-list {
+  display: grid;
+  gap: 14px;
+}
+
+.process-group-block {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+
+.process-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 14px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.process-group-title {
+  color: #1e293b;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.process-group-desc {
+  margin-top: 2px;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.process-group-count {
+  flex: none;
+  color: #64748b;
+  font-size: 12px;
+}
+</style>
