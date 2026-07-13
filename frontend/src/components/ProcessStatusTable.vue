@@ -5,7 +5,9 @@
     :columns="columns"
     :data-source="tableRows"
     :loading="loading"
-    :pagination="{ pageSize: 10, showSizeChanger: false }"
+    :pagination="compact
+      ? { pageSize: 10, showSizeChanger: false, hideOnSinglePage: true }
+      : { pageSize: 10, showSizeChanger: false }"
   >
     <template #bodyCell="{ column, record }">
       <template v-if="column.key === 'label'">
@@ -89,6 +91,7 @@ import StatusTag from './StatusTag.vue';
 const props = defineProps<{
   rows: MonitorRow[];
   loading?: boolean;
+  compact?: boolean;
 }>();
 
 const columns: TableColumnsType = [
