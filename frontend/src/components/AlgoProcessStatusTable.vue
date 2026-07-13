@@ -66,22 +66,30 @@
         </span>
       </template>
       <template v-else-if="column.key === 'rt0'">
-        <span
-          class="ellipsis-cell"
-          :class="valueClass(formatRoundtrip(record, 'r0'))"
-          :title="formatRoundtrip(record, 'r0')"
-        >
-          {{ formatRoundtrip(record, 'r0') }}
-        </span>
+        <span v-if="record.__rt0.isEmpty" class="empty-value">-</span>
+        <div v-else class="rt-metric-cell" :title="record.__rt0.title">
+          <div class="rt-metric-row">
+            <span>均值 <span :class="valueClass(record.__rt0.mean)">{{ record.__rt0.mean }}</span></span>
+            <span>标准差 <span :class="valueClass(record.__rt0.std)">{{ record.__rt0.std }}</span></span>
+          </div>
+          <div class="rt-metric-row">
+            <span>P50 <span :class="valueClass(record.__rt0.p50)">{{ record.__rt0.p50 }}</span></span>
+            <span>P90 <span :class="valueClass(record.__rt0.p90)">{{ record.__rt0.p90 }}</span></span>
+          </div>
+        </div>
       </template>
       <template v-else-if="column.key === 'rt1'">
-        <span
-          class="ellipsis-cell"
-          :class="valueClass(formatRoundtrip(record, 'r1'))"
-          :title="formatRoundtrip(record, 'r1')"
-        >
-          {{ formatRoundtrip(record, 'r1') }}
-        </span>
+        <span v-if="record.__rt1.isEmpty" class="empty-value">-</span>
+        <div v-else class="rt-metric-cell" :title="record.__rt1.title">
+          <div class="rt-metric-row">
+            <span>均值 <span :class="valueClass(record.__rt1.mean)">{{ record.__rt1.mean }}</span></span>
+            <span>标准差 <span :class="valueClass(record.__rt1.std)">{{ record.__rt1.std }}</span></span>
+          </div>
+          <div class="rt-metric-row">
+            <span>P50 <span :class="valueClass(record.__rt1.p50)">{{ record.__rt1.p50 }}</span></span>
+            <span>P90 <span :class="valueClass(record.__rt1.p90)">{{ record.__rt1.p90 }}</span></span>
+          </div>
+        </div>
       </template>
       <template v-else-if="column.key === 'action'">
         <a-space :size="0">
@@ -125,6 +133,8 @@ const tableRows = computed(() =>
   props.rows.map((row, index) => ({
     __rowKey: row.id ?? `${row.machine_tag || 'machine'}-${getProcessName(row)}-${row.pid ?? 'pid'}-${index}`,
     ...row,
+    __rt0: formatRoundtrip(row, 'r0'),
+    __rt1: formatRoundtrip(row, 'r1'),
   })),
 );
 
@@ -171,13 +181,21 @@ function formatOrdDist(value: unknown) {
 
 function formatRoundtrip(row: MonitorRow, key: 'r0' | 'r1') {
   const roundtrip = getExtra(row, 'roundtrip');
-  if (!isPlainRecord(roundtrip) || !isPlainRecord(roundtrip[key])) return '-';
+  const metrics: Record<string, unknown> =
+    isPlainRecord(roundtrip) && isPlainRecord(roundtrip[key]) ? roundtrip[key] : {};
+  const mean = formatRoundtripMetric(metrics.mean);
+  const std = formatRoundtripMetric(metrics.std);
+  const p50 = formatRoundtripMetric(metrics.p50);
+  const p90 = formatRoundtripMetric(metrics.p90);
 
-  const metrics = roundtrip[key];
-  const values = ['mean', 'std', 'p50', 'p90'].map((metric) => formatRoundtripMetric(metrics[metric]));
-  if (values.every((value) => value === '-')) return '-';
-
-  return ['mean', 'std', 'p50', 'p90'].map((metric, index) => `${metric}: ${values[index]}`).join(', ');
+  return {
+    mean,
+    std,
+    p50,
+    p90,
+    isEmpty: [mean, std, p50, p90].every((value) => value === '-'),
+    title: `mean: ${mean}, std: ${std}, p50: ${p50}, p90: ${p90}`,
+  };
 }
 
 function formatRoundtripMetric(value: unknown) {
@@ -216,6 +234,19 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   text-overflow: ellipsis;
   vertical-align: bottom;
   white-space: nowrap;
+}
+
+.rt-metric-cell {
+  display: inline-flex;
+  flex-direction: column;
+  line-height: 1.25;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.rt-metric-row {
+  display: flex;
+  gap: 12px;
 }
 
 .empty-value {
