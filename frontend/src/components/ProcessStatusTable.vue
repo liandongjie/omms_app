@@ -8,8 +8,10 @@
     :pagination="{ pageSize: 10, showSizeChanger: false }"
   >
     <template #bodyCell="{ column, record }">
-      <template v-if="column.key === 'machine'">
-        <span class="table-primary">{{ getMachineName(record) }}</span>
+      <template v-if="column.key === 'label'">
+        <span class="table-primary" :title="formatProcessLabel(record)">
+          {{ formatProcessLabel(record) }}
+        </span>
       </template>
       <template v-else-if="column.key === 'process_name'">
         {{ getProcessName(record) }}
@@ -58,8 +60,8 @@
       size="small"
       :column="1"
     >
-      <a-descriptions-item label="机器标识">
-        {{ getMachineName(selectedRow) }}
+      <a-descriptions-item label="标签">
+        {{ formatProcessLabel(selectedRow) }}
       </a-descriptions-item>
       <a-descriptions-item label="进程名">
         {{ getProcessName(selectedRow) }}
@@ -90,7 +92,7 @@ const props = defineProps<{
 }>();
 
 const columns: TableColumnsType = [
-  { title: '机器标识', key: 'machine', width: 150 },
+  { title: '标签', key: 'label', width: 150 },
   { title: '进程名', key: 'process_name', width: 170 },
   { title: '配置', key: 'config', width: 100, align: 'center' },
   { title: 'args', key: 'args', width: 260 },
@@ -134,6 +136,14 @@ function getMachineName(row: MonitorRow) {
     row.name ||
     '-'
   );
+}
+
+function formatProcessLabel(row: MonitorRow) {
+  const machineTag = String(row.machine_tag ?? '').trim();
+  if (!machineTag) return '-';
+
+  const group = String(row.group ?? '').trim();
+  return group ? `${group}/${machineTag}` : `未分组/${machineTag}`;
 }
 
 function getProcessName(row: MonitorRow) {
