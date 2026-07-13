@@ -47,6 +47,12 @@
         </a-button>
         <span v-else>-</span>
       </template>
+      <template v-else-if="column.key === 'action'">
+        <a-space :size="0">
+          <a-button type="link" size="small" @click="showUnavailable('重启')">重启</a-button>
+          <a-button type="link" size="small" danger @click="showUnavailable('停止')">停止</a-button>
+        </a-space>
+      </template>
     </template>
   </a-table>
 
@@ -84,7 +90,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import type { TableColumnsType } from 'ant-design-vue';
+import { message, type TableColumnsType } from 'ant-design-vue';
 import type { MonitorRow } from '../api/omms';
 import StatusTag from './StatusTag.vue';
 
@@ -105,6 +111,7 @@ const columns: TableColumnsType = [
   { title: '更新时间', key: 'update_time', width: 190 },
   { title: '状态', key: 'status', width: 110, align: 'center' },
   { title: '详情', key: 'extra', width: 90, align: 'center' },
+  { title: '操作', key: 'action', width: 120, align: 'center' },
 ];
 
 const extraModalOpen = ref(false);
@@ -180,6 +187,10 @@ function hasExtra(row: MonitorRow) {
 function openExtraModal(row: MonitorRow) {
   selectedRow.value = row;
   extraModalOpen.value = true;
+}
+
+function showUnavailable(action: '重启' | '停止') {
+  message.info(`${action}功能暂未接入`);
 }
 
 function formatExtraValue(value: unknown) {

@@ -83,6 +83,12 @@
           {{ formatRoundtrip(record, 'r1') }}
         </span>
       </template>
+      <template v-else-if="column.key === 'action'">
+        <a-space :size="0">
+          <a-button type="link" size="small" @click="showUnavailable('重启')">重启</a-button>
+          <a-button type="link" size="small" danger @click="showUnavailable('停止')">停止</a-button>
+        </a-space>
+      </template>
     </template>
     </a-table>
   </div>
@@ -90,7 +96,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { TableColumnsType } from 'ant-design-vue';
+import { message, type TableColumnsType } from 'ant-design-vue';
 import type { MonitorRow } from '../api/omms';
 
 const props = defineProps<{
@@ -112,6 +118,7 @@ const columns: TableColumnsType = [
   { title: 'ord_dist', key: 'ord_dist', width: 200 },
   { title: 'rt0', key: 'rt0', width: 240 },
   { title: 'rt1', key: 'rt1', width: 240 },
+  { title: '操作', key: 'action', width: 120, align: 'center' },
 ];
 
 const tableRows = computed(() =>
@@ -153,9 +160,13 @@ function formatValue(value: unknown) {
 }
 
 function formatOrdDist(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.length ? value.map((item) => formatValue(item)).join('-') : '-';
+  }
   if (!isPlainRecord(value)) return formatValue(value);
-  const entries = Object.entries(value);
-  return entries.length ? entries.map(([key, item]) => `${key}:${formatValue(item)}`).join(', ') : '-';
+
+  const entries = Object.entries(value).sort(([left], [right]) => left.localeCompare(right));
+  return entries.length ? entries.map(([, item]) => formatValue(item)).join('-') : '-';
 }
 
 function formatRoundtrip(row: MonitorRow, key: 'r0' | 'r1') {
@@ -163,7 +174,22 @@ function formatRoundtrip(row: MonitorRow, key: 'r0' | 'r1') {
   if (!isPlainRecord(roundtrip) || !isPlainRecord(roundtrip[key])) return '-';
 
   const metrics = roundtrip[key];
-  return ['mean', 'std', 'p50', 'p90'].map((metric) => formatValue(metrics[metric])).join(' / ');
+  const values = ['mean', 'std', 'p50', 'p90'].map((metric) => formatRoundtripMetric(metrics[metric]));
+  if (values.every((value) => value === '-')) return '-';
+
+  return ['mean', 'std', 'p50', 'p90'].map((metric, index) => `${metric}: ${values[index]}`).join(', ');
+}
+
+function formatRoundtripMetric(value: unknown) {
+  if (typeof value !== 'number' && typeof value !== 'string') return '-';
+  if (typeof value === 'string' && !value.trim()) return '-';
+
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? (numberValue / 1000).toFixed(1) : '-';
+}
+
+function showUnavailable(action: '重启' | '停止') {
+  message.info(`${action}功能暂未接入`);
 }
 
 function valueClass(value: string | undefined) {
