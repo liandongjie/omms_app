@@ -22,6 +22,11 @@
       <template v-else-if="column.key === 'process_name'">
         {{ getProcessName(record) }}
       </template>
+      <template v-else-if="column.key === 'config'">
+        <a-tag :bordered="false" :color="isConfigured(record) ? 'green' : 'orange'">
+          {{ isConfigured(record) ? '已配置' : '未配置' }}
+        </a-tag>
+      </template>
       <template v-else-if="column.key === 'args'">
         <span class="ellipsis-cell" :title="formatValue(record.args)">{{ formatValue(record.args) }}</span>
       </template>
@@ -69,12 +74,12 @@
         <span v-if="record.__rt0.isEmpty" class="empty-value">-</span>
         <div v-else class="rt-metric-cell" :title="record.__rt0.title">
           <div class="rt-metric-row">
-            <span>均值 <span :class="valueClass(record.__rt0.mean)">{{ record.__rt0.mean }}</span></span>
-            <span>标准差 <span :class="valueClass(record.__rt0.std)">{{ record.__rt0.std }}</span></span>
+            <span>mean: <span :class="valueClass(record.__rt0.mean)">{{ record.__rt0.mean }}</span></span>
+            <span>std: <span :class="valueClass(record.__rt0.std)">{{ record.__rt0.std }}</span></span>
           </div>
           <div class="rt-metric-row">
-            <span>P50 <span :class="valueClass(record.__rt0.p50)">{{ record.__rt0.p50 }}</span></span>
-            <span>P90 <span :class="valueClass(record.__rt0.p90)">{{ record.__rt0.p90 }}</span></span>
+            <span>p50: <span :class="valueClass(record.__rt0.p50)">{{ record.__rt0.p50 }}</span></span>
+            <span>p90: <span :class="valueClass(record.__rt0.p90)">{{ record.__rt0.p90 }}</span></span>
           </div>
         </div>
       </template>
@@ -82,12 +87,12 @@
         <span v-if="record.__rt1.isEmpty" class="empty-value">-</span>
         <div v-else class="rt-metric-cell" :title="record.__rt1.title">
           <div class="rt-metric-row">
-            <span>均值 <span :class="valueClass(record.__rt1.mean)">{{ record.__rt1.mean }}</span></span>
-            <span>标准差 <span :class="valueClass(record.__rt1.std)">{{ record.__rt1.std }}</span></span>
+            <span>mean: <span :class="valueClass(record.__rt1.mean)">{{ record.__rt1.mean }}</span></span>
+            <span>std: <span :class="valueClass(record.__rt1.std)">{{ record.__rt1.std }}</span></span>
           </div>
           <div class="rt-metric-row">
-            <span>P50 <span :class="valueClass(record.__rt1.p50)">{{ record.__rt1.p50 }}</span></span>
-            <span>P90 <span :class="valueClass(record.__rt1.p90)">{{ record.__rt1.p90 }}</span></span>
+            <span>p50: <span :class="valueClass(record.__rt1.p50)">{{ record.__rt1.p50 }}</span></span>
+            <span>p90: <span :class="valueClass(record.__rt1.p90)">{{ record.__rt1.p90 }}</span></span>
           </div>
         </div>
       </template>
@@ -115,6 +120,7 @@ const props = defineProps<{
 const columns: TableColumnsType = [
   { title: '标签', key: 'label', width: 170 },
   { title: '进程名', key: 'process_name', width: 140 },
+  { title: '配置', key: 'config', width: 100, align: 'center' },
   { title: 'args', key: 'args', width: 280 },
   { title: 'PID', key: 'pid', width: 90 },
   { title: 'CPU (%)', key: 'cpu', width: 80 },
@@ -148,6 +154,10 @@ function formatProcessLabel(row: MonitorRow) {
 
 function getProcessName(row: MonitorRow) {
   return row.process_name || row.proc_name || row.name || '-';
+}
+
+function isConfigured(row: MonitorRow) {
+  return row.is_configured !== false;
 }
 
 function getUpdateTime(row: MonitorRow) {

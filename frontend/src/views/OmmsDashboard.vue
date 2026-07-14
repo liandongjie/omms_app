@@ -81,40 +81,28 @@
           <div v-if="processGroup === ''" class="process-group-list">
             <div v-if="processLoading || opProcessRows.length" class="process-group-block">
               <div class="process-group-header">
-                <div>
-                  <div class="process-group-title">op</div>
-                  <div class="process-group-desc">普通运维进程</div>
-                </div>
+                <div class="process-group-title">op</div>
                 <span class="process-group-count">{{ opProcessRows.length }} 条</span>
               </div>
               <ProcessStatusTable compact :rows="opProcessRows" :loading="processLoading" />
             </div>
             <div v-if="processLoading || algoProcessRows.length" class="process-group-block">
               <div class="process-group-header">
-                <div>
-                  <div class="process-group-title">algo00x</div>
-                  <div class="process-group-desc">算法交易进程</div>
-                </div>
+                <div class="process-group-title">algo00x</div>
                 <span class="process-group-count">{{ algoProcessRows.length }} 条</span>
               </div>
               <AlgoProcessStatusTable :rows="algoProcessRows" :loading="processLoading" />
             </div>
             <div v-if="otherProcessRows.length" class="process-group-block">
               <div class="process-group-header">
-                <div>
-                  <div class="process-group-title">其他分组</div>
-                  <div class="process-group-desc">未配置专用列的进程</div>
-                </div>
+                <div class="process-group-title">其他分组</div>
                 <span class="process-group-count">{{ otherProcessRows.length }} 条</span>
               </div>
               <ProcessStatusTable compact :rows="otherProcessRows" :loading="processLoading" />
             </div>
             <div v-if="ungroupedProcessRows.length" class="process-group-block">
               <div class="process-group-header">
-                <div>
-                  <div class="process-group-title">未分组</div>
-                  <div class="process-group-desc">未匹配到 group 的上报进程</div>
-                </div>
+                <div class="process-group-title">未分组</div>
                 <span class="process-group-count">{{ ungroupedProcessRows.length }} 条</span>
               </div>
               <ProcessStatusTable compact :rows="ungroupedProcessRows" :loading="processLoading" />
@@ -598,12 +586,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   color: #1e293b;
   font-size: 15px;
   font-weight: 600;
-}
-
-.process-group-desc {
-  margin-top: 2px;
-  color: #94a3b8;
-  font-size: 12px;
 }
 
 .process-group-count {
