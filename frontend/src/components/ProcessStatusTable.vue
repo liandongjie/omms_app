@@ -39,7 +39,8 @@
         {{ getUpdateTime(record) }}
       </template>
       <template v-else-if="column.key === 'status'">
-        <StatusTag :is-alarm="record.is_alarm" :is-offline="record.is_offline" />
+        <a-tag v-if="isNoReportRow(record)" :bordered="false">暂无上报数据</a-tag>
+        <StatusTag v-else :is-alarm="record.is_alarm" :is-offline="record.is_offline" />
       </template>
       <template v-else-if="column.key === 'extra'">
         <a-button v-if="hasExtra(record)" type="link" size="small" @click="openExtraModal(record)">
@@ -167,6 +168,24 @@ function getArgsText(row: MonitorRow) {
 
 function isConfigured(row: MonitorRow) {
   return row.is_configured !== false;
+}
+
+function hasValue(value: unknown) {
+  return value !== null && value !== undefined && String(value).trim() !== '';
+}
+
+function isNoReportRow(row: MonitorRow) {
+  return (
+    isConfigured(row) &&
+    !hasValue(row.pid) &&
+    !hasValue(row.cpu) &&
+    !hasValue(row.mem) &&
+    !hasValue(row.memory) &&
+    !hasValue(row.mem_usage) &&
+    !hasValue(row.update_time) &&
+    Number(row.is_alarm) !== 1 &&
+    Number(row.is_offline) !== 1
+  );
 }
 
 function getUpdateTime(row: MonitorRow) {
