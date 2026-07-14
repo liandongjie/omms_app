@@ -14,7 +14,8 @@
       :columns="columns"
       :data-source="rows"
       :loading="loading"
-      :pagination="false"
+      :pagination="paginationConfig"
+      @change="handleTableChange"
     >
       <template #emptyText>
         <a-empty description="暂无日志数据" />
@@ -57,14 +58,31 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue';
 import { message, type TableColumnsType } from 'ant-design-vue';
 import type { LogRow } from '../api/omms';
 
-defineProps<{
+const props = defineProps<{
   rows: LogRow[];
   loading: boolean;
   errorMessage?: string;
+  total: number;
+  pageNo: number;
+  pageSize: number;
 }>();
+
+const emit = defineEmits<{
+  changePage: [pageNo: number];
+}>();
+
+const paginationConfig = computed(() => ({
+  current: props.pageNo,
+  pageSize: props.pageSize,
+  total: props.total,
+  showSizeChanger: false,
+  showTotal: (total: number, range: [number, number]) =>
+    `共 ${total} 条，当前显示 ${range[0]}-${range[1]} 条`,
+}));
 
 const columns: TableColumnsType = [
   { title: '机器标识', key: 'machine_tag', width: 150 },
@@ -73,6 +91,10 @@ const columns: TableColumnsType = [
   { title: '日志内容', key: 'log', ellipsis: true },
   { title: '操作', key: 'action', width: 110 },
 ];
+
+function handleTableChange(pagination: { current?: number }) {
+  if (pagination.current) emit('changePage', pagination.current);
+}
 
 function resolveRowKey(record: LogRow, index?: number) {
   if (record.log_id !== undefined) return record.log_id;

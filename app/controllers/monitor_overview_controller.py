@@ -151,6 +151,7 @@ class MonitorOverviewController(BaseController):
 
         page = self.ops_service.get_logs(
             group=group,
+            machine_tag=request.machine_tag,
             level=request.level or None,
             date=date,
             page=page_no,

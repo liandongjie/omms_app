@@ -133,12 +133,29 @@
         <SectionCard title="最近日志" description="来自最近日志接口的当天日志记录">
           <template #extra>
             <a-space class="section-filter" :size="8">
+              <a-input-search
+                v-model:value="logMachineTagInput"
+                placeholder="机器标识"
+                allow-clear
+                size="small"
+                style="width: 180px"
+                @search="handleLogMachineTagSearch"
+                @change="handleLogMachineTagInputChange"
+              />
               <span class="only-error-label">仅异常</span>
               <a-switch v-model:checked="logOnlyError" size="small" />
               <GroupFilter v-model="logGroup" :options="groupOptions" @change="handleLogGroupChange" />
             </a-space>
           </template>
-          <RecentLogTable :rows="logRows" :loading="logLoading" :error-message="logErrorMessage" />
+          <RecentLogTable
+            :rows="logRows"
+            :loading="logLoading"
+            :error-message="logErrorMessage"
+            :total="logTotal"
+            :page-no="logPageNo"
+            :page-size="logPageSize"
+            @change-page="handleLogPageChange"
+          />
         </SectionCard>
       </section>
     </main>
@@ -209,6 +226,11 @@ const logGroup = ref('');
 const osOnlyError = ref(false);
 const processOnlyError = ref(false);
 const logOnlyError = ref(false);
+const logMachineTagInput = ref('');
+const logMachineTag = ref('');
+const logPageNo = ref(1);
+const logPageSize = ref(20);
+const logTotal = ref(0);
 const autoRefresh = ref(true);
 const refreshing = ref(false);
 const pageLoading = ref(false);
@@ -297,6 +319,7 @@ watch(autoRefresh, (enabled) => {
 });
 
 watch(logOnlyError, () => {
+  logPageNo.value = 1;
   void loadLogRows();
 });
 
@@ -381,6 +404,13 @@ async function loadLogRows() {
   try {
     const data = await fetchOverviewLogList(buildLogListParams());
     logRows.value = normalizeRows(data);
+    if (Array.isArray(data)) {
+      logTotal.value = data.length;
+    } else {
+      logTotal.value = data.total ?? 0;
+      logPageNo.value = data.page_no ?? logPageNo.value;
+      logPageSize.value = data.page_size ?? logPageSize.value;
+    }
   } catch (error) {
     const text = error instanceof Error ? error.message : '请求失败';
     logErrorMessage.value = `最近日志请求失败：${text}`;
@@ -399,6 +429,30 @@ async function handleProcessGroupChange(value: string) {
 }
 
 async function handleLogGroupChange() {
+  logPageNo.value = 1;
+  await loadLogRows();
+}
+
+async function handleLogMachineTagSearch(value: string) {
+  const machineTag = value.trim();
+  logMachineTagInput.value = machineTag;
+  logMachineTag.value = machineTag;
+  logPageNo.value = 1;
+  await loadLogRows();
+}
+
+function handleLogMachineTagInputChange(event: Event) {
+  const value = (event.target as HTMLInputElement | null)?.value ?? logMachineTagInput.value;
+  if (value.trim() || !logMachineTag.value) return;
+
+  logMachineTagInput.value = '';
+  logMachineTag.value = '';
+  logPageNo.value = 1;
+  void loadLogRows();
+}
+
+async function handleLogPageChange(pageNo: number) {
+  logPageNo.value = pageNo;
   await loadLogRows();
 }
 
@@ -428,11 +482,12 @@ function stopAutoRefresh() {
 function buildLogListParams(): LogListParams {
   return {
     group: logGroup.value,
+    machine_tag: logMachineTag.value.trim() || undefined,
     only_error: logOnlyError.value ? 1 : 0,
     level: '',
     date: '',
-    page_no: 1,
-    page_size: 20,
+    page_no: logPageNo.value,
+    page_size: logPageSize.value,
     sort_by: '',
     sort_order: '',
   };

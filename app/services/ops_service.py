@@ -119,6 +119,7 @@ class OpsService(BaseService):
         page_size = min(max(page_size, 1), max_page_size)
 
         machine_tags = self._get_group_machine_tags(group) if group else None
+        machine_tag = (machine_tag or "").strip()
         query = self.db.query(OpsLog).filter(OpsLog.date == target_date)
         if machine_tag:
             query = query.filter(OpsLog.machine_tag == machine_tag)
