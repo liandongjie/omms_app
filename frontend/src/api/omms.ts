@@ -15,6 +15,7 @@ export interface MonitorListParams {
 }
 
 export interface LogListParams extends MonitorListParams {
+  machine_tag?: string;
   only_error: number;
   level: string;
   date: string;
@@ -75,6 +76,8 @@ export interface MonitorListData<T = MonitorRow> {
   rows?: T[];
   data?: T[];
   total?: number;
+  page_no?: number;
+  page_size?: number;
   [key: string]: unknown;
 }
 

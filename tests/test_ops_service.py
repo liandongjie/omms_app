@@ -791,6 +791,43 @@ def test_get_logs_group_filters_by_ops_cfg_machine_tags():
     assert missing.items == []
 
 
+def test_get_logs_filters_by_machine_tag():
+    service, db = make_log_service()
+    seed_log_rows(db)
+
+    result = service.get_logs(machine_tag="m1")
+
+    assert result.total == 2
+    assert [item.machine_tag for item in result.items] == ["m1", "m1"]
+
+
+def test_get_logs_combines_group_and_machine_tag_filters():
+    service, db = make_log_service()
+    seed_log_rows(db)
+    db.add_all([cfg_row("m1", "algo00x"), cfg_row("m2", "op")])
+    db.commit()
+
+    matching = service.get_logs(group="algo00x", machine_tag="m1")
+    not_matching = service.get_logs(group="algo00x", machine_tag="m2")
+
+    assert matching.total == 2
+    assert [item.machine_tag for item in matching.items] == ["m1", "m1"]
+    assert not_matching.total == 0
+    assert not_matching.items == []
+
+
+def test_get_logs_ignores_blank_machine_tag():
+    service, db = make_log_service()
+    seed_log_rows(db)
+
+    empty = service.get_logs(machine_tag="")
+    whitespace = service.get_logs(machine_tag="   ")
+
+    assert empty.total == 3
+    assert whitespace.total == 3
+    assert [item.log_id for item in whitespace.items] == [3, 2, 1]
+
+
 def test_get_logs_supports_explicit_sort_and_pagination():
     service, db = make_log_service()
     seed_log_rows(db)

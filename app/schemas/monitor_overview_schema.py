@@ -136,6 +136,7 @@ class MonitorOverviewLogListRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     group: str | None = ""
+    machine_tag: str | None = None
     only_error: bool | int | None = 0
     level: str | None = ""
     date: str | None = ""

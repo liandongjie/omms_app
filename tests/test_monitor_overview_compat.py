@@ -421,6 +421,7 @@ def test_overview_log_list_passes_filters_sort_and_pagination():
     result = controller.get_log_list(
         MonitorOverviewLogListRequest(
             group="op",
+            machine_tag="machine-a",
             only_error=1,
             level="ERROR",
             date="20260708",
@@ -439,7 +440,7 @@ def test_overview_log_list_passes_filters_sort_and_pagination():
     assert service.log_calls == [
         {
             "group": "op",
-            "machine_tag": None,
+            "machine_tag": "machine-a",
             "level": "error",
             "date": "20260708",
             "page": 2,
@@ -600,6 +601,34 @@ def test_monitor_overview_log_list_route_accepts_empty_body_and_declares_utf8_ch
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/json; charset=utf-8"
     assert response.json()["data"] == {"page_no": 1, "page_size": 10, "total": 0, "details": []}
+
+
+def test_monitor_overview_log_list_route_accepts_machine_tag():
+    from app.main import app
+
+    requests = []
+
+    class FakeController:
+        def get_log_list(self, request=None):
+            requests.append(request)
+            return {"page_no": 1, "page_size": 20, "total": 0, "details": []}
+
+    app.dependency_overrides[get_monitor_overview_controller] = lambda: FakeController()
+    try:
+        response = TestClient(app).post(
+            "/api_omms/monitor/overview/log/list",
+            json={"machine_tag": "machine-a", "page_no": 1, "page_size": 20},
+        )
+    finally:
+        app.dependency_overrides.pop(get_monitor_overview_controller, None)
+
+    assert response.status_code == 200
+    assert requests[0].machine_tag == "machine-a"
+    assert response.json() == {
+        "code": 200,
+        "msg": "success",
+        "data": {"page_no": 1, "page_size": 20, "total": 0, "details": []},
+    }
 
 def test_monitor_overview_os_list_rejects_gropy_typo():
     from app.main import app
