@@ -238,7 +238,9 @@ const baseListParams: Omit<MonitorListParams, 'group'> = {
   sort_order: '',
 };
 
-const visibleOsRows = computed(() => filterRows(osRows.value, osOnlyError.value));
+const visibleOsRows = computed(() =>
+  [...filterRows(osRows.value, osOnlyError.value)].sort(compareOsRows),
+);
 const visibleProcessRows = computed(() => filterRows(processRows.value, processOnlyError.value));
 const normalizedProcessGroup = computed(() => processGroup.value.trim());
 const opProcessRows = computed(() => visibleProcessRows.value.filter((row) => normalizeGroup(row.group) === 'op'));
@@ -501,6 +503,19 @@ function normalizeGroupItems(items?: MonitorGroupItem[]) {
 
 function normalizeGroup(group: unknown) {
   return String(group ?? '').trim();
+}
+
+function compareOsRows(a: MonitorRow, b: MonitorRow) {
+  const groupA = normalizeGroup(a.group);
+  const groupB = normalizeGroup(b.group);
+
+  if (groupA && !groupB) return -1;
+  if (!groupA && groupB) return 1;
+
+  const groupCompare = groupA.localeCompare(groupB);
+  if (groupCompare !== 0) return groupCompare;
+
+  return String(a.machine_tag ?? '').trim().localeCompare(String(b.machine_tag ?? '').trim());
 }
 
 function filterRows(rows: MonitorRow[], onlyError: boolean) {

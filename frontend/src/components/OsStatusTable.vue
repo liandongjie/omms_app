@@ -8,11 +8,8 @@
     :pagination="{ pageSize: 10, showSizeChanger: false }"
   >
     <template #bodyCell="{ column, record }">
-      <template v-if="column.key === 'machine'">
-        <span class="table-primary">{{ getMachineName(record) }}</span>
-      </template>
-      <template v-else-if="column.key === 'group'">
-        {{ record.group || '-' }}
+      <template v-if="column.key === 'label'">
+        <span class="table-primary">{{ formatOsLabel(record) }}</span>
       </template>
       <template v-else-if="column.key === 'cpu_usage'">
         <div v-if="hasMetric(record.cpu_usage ?? record.cpu)" class="os-metric-progress">
@@ -69,8 +66,7 @@ const props = defineProps<{
 }>();
 
 const columns: TableColumnsType = [
-  { title: '机器标识', key: 'machine', width: 180 },
-  { title: '分组', key: 'group', width: 110 },
+  { title: '标签', key: 'label', width: 220 },
   { title: 'CPU 使用率', key: 'cpu_usage', width: 160 },
   { title: '内存使用率', key: 'mem_usage', width: 160 },
   { title: '磁盘使用率', key: 'disk_usage', width: 160 },
@@ -97,6 +93,14 @@ function getMachineName(row: MonitorRow) {
     row.name ||
     '-'
   );
+}
+
+function formatOsLabel(row: MonitorRow) {
+  const machineTag = String(row.machine_tag ?? '').trim();
+  if (!machineTag) return '-';
+
+  const group = String(row.group ?? '').trim();
+  return group ? `${group}/${machineTag}` : `未分组/${machineTag}`;
 }
 
 function getUpdateTime(row: MonitorRow) {
