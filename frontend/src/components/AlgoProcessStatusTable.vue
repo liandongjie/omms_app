@@ -46,6 +46,10 @@
       <template v-else-if="column.key === 'update_time'">
         {{ getUpdateTime(record) }}
       </template>
+      <template v-else-if="column.key === 'status'">
+        <a-tag v-if="isNoReportRow(record)" :bordered="false">暂无上报数据</a-tag>
+        <StatusTag v-else :is-alarm="record.is_alarm" :is-offline="record.is_offline" />
+      </template>
       <template v-else-if="column.key === 'mds'">
         <span :class="valueClass(formatValue(getExtra(record, 'mds')))">
           {{ formatValue(getExtra(record, 'mds')) }}
@@ -111,6 +115,7 @@
 import { computed } from 'vue';
 import { message, type TableColumnsType } from 'ant-design-vue';
 import type { MonitorRow } from '../api/omms';
+import StatusTag from './StatusTag.vue';
 
 const props = defineProps<{
   rows: MonitorRow[];
@@ -126,6 +131,7 @@ const columns: TableColumnsType = [
   { title: 'CPU (%)', key: 'cpu', width: 80 },
   { title: '内存 (M)', key: 'mem', width: 90 },
   { title: '更新时间', key: 'update_time', width: 150 },
+  { title: '状态', key: 'status', width: 110, align: 'center' },
   { title: 'mds', key: 'mds', width: 120 },
   { title: 'algo00x_cfg', key: 'algo00x_cfg', width: 110 },
   { title: 'ord_speed', key: 'ord_speed', width: 90 },
@@ -158,6 +164,24 @@ function getProcessName(row: MonitorRow) {
 
 function isConfigured(row: MonitorRow) {
   return row.is_configured !== false;
+}
+
+function hasValue(value: unknown) {
+  return value !== null && value !== undefined && String(value).trim() !== '';
+}
+
+function isNoReportRow(row: MonitorRow) {
+  return (
+    isConfigured(row) &&
+    !hasValue(row.pid) &&
+    !hasValue(row.cpu) &&
+    !hasValue(row.mem) &&
+    !hasValue(row.memory) &&
+    !hasValue(row.mem_usage) &&
+    !hasValue(row.update_time) &&
+    Number(row.is_alarm) !== 1 &&
+    Number(row.is_offline) !== 1
+  );
 }
 
 function getUpdateTime(row: MonitorRow) {
