@@ -125,6 +125,7 @@ const tableRows = computed(() =>
   })),
 );
 
+// 详情弹窗只展开 extra，基础字段仍由固定描述项展示，避免重复。
 const selectedExtraItems = computed(() => {
   const extra = selectedRow.value?.extra;
   if (!isPlainRecord(extra)) return [];
@@ -135,6 +136,12 @@ const selectedExtraItems = computed(() => {
   }));
 });
 
+/**
+ * 按兼容字段优先级读取机器标识。
+ *
+ * @param row 进程监控行。
+ * @returns 第一个有效机器标识或占位符。
+ */
 function getMachineName(row: MonitorRow) {
   return (
     row.machine_tag ||
@@ -149,6 +156,12 @@ function getMachineName(row: MonitorRow) {
   );
 }
 
+/**
+ * 组合分组与机器标签作为进程行标题。
+ *
+ * @param row 进程监控行。
+ * @returns ``分组/机器`` 标签；缺少分组时使用“未分组”。
+ */
 function formatProcessLabel(row: MonitorRow) {
   const machineTag = String(row.machine_tag ?? '').trim();
   if (!machineTag) return '-';
@@ -157,24 +170,55 @@ function formatProcessLabel(row: MonitorRow) {
   return group ? `${group}/${machineTag}` : `未分组/${machineTag}`;
 }
 
+/**
+ * 按兼容字段优先级读取进程名称。
+ *
+ * @param row 进程监控行。
+ * @returns 进程名称或占位符。
+ */
 function getProcessName(row: MonitorRow) {
   return row.process_name || row.proc_name || row.name || '-';
 }
 
+/**
+ * 把进程启动参数转换为展示文本。
+ *
+ * @param row 进程监控行。
+ * @returns 参数文本；空值返回占位符。
+ */
 function getArgsText(row: MonitorRow) {
   if (row.args === null || row.args === undefined || row.args === '') return '-';
   return String(row.args);
 }
 
+/**
+ * 判断进程是否来自配置项。
+ *
+ * @param row 进程监控行。
+ * @returns 仅显式为 false 时返回 false。
+ */
 function isConfigured(row: MonitorRow) {
   return row.is_configured !== false;
 }
 
+/**
+ * 判断值是否包含非空内容。
+ *
+ * @param value 待检查值。
+ * @returns 值非 null、undefined 和空字符串时返回 true。
+ */
 function hasValue(value: unknown) {
   return value !== null && value !== undefined && String(value).trim() !== '';
 }
 
+/**
+ * 识别已配置但尚无运行指标的进程行。
+ *
+ * @param row 进程监控行。
+ * @returns 缺少关键指标且没有异常标记时返回 true。
+ */
 function isNoReportRow(row: MonitorRow) {
+  // 已配置项缺少运行指标但又未被后端判为异常时，与真正离线状态分开展示。
   return (
     isConfigured(row) &&
     !hasValue(row.pid) &&
@@ -188,10 +232,22 @@ function isNoReportRow(row: MonitorRow) {
   );
 }
 
+/**
+ * 按兼容字段优先级读取更新时间。
+ *
+ * @param row 进程监控行。
+ * @returns 第一个有效时间或占位符。
+ */
 function getUpdateTime(row: MonitorRow) {
   return row.update_time || row.updated_at || row.collect_time || row.timestamp || '-';
 }
 
+/**
+ * 把运行指标格式化为两位小数文本。
+ *
+ * @param value 原始指标值。
+ * @returns 格式化数值、原始非法数值文本或占位符。
+ */
 function formatMetric(value: unknown) {
   if (value === null || value === undefined || value === '') return '-';
   const numberValue = Number(value);
@@ -199,21 +255,44 @@ function formatMetric(value: unknown) {
   return numberValue.toFixed(2);
 }
 
+/**
+ * 判断进程行是否包含可展示的扩展字段。
+ *
+ * @param row 进程监控行。
+ * @returns extra 为非空普通对象时返回 true。
+ */
 function hasExtra(row: MonitorRow) {
   return isPlainRecord(row.extra) && Object.keys(row.extra).length > 0;
 }
 
+/**
+ * 选中进程行并打开扩展信息弹窗。
+ *
+ * @param row 要查看的进程监控行。
+ */
 function openExtraModal(row: MonitorRow) {
   selectedRow.value = row;
   extraModalOpen.value = true;
 }
 
+/**
+ * 提示指定进程操作尚未接入。
+ *
+ * @param action 用户点击的操作名称。
+ */
 function showUnavailable(action: '重启' | '停止') {
   message.info(`${action}功能暂未接入`);
 }
 
+/**
+ * 把扩展字段值转换为弹窗中的可读文本。
+ *
+ * @param value 原始扩展值。
+ * @returns 字符串化后的值或占位符。
+ */
 function formatExtraValue(value: unknown) {
   if (value === null || value === undefined || value === '') return '-';
+  // 复合值优先序列化为可读文本；无法序列化时退回通用字符串转换。
   if (Array.isArray(value) || typeof value === 'object') {
     try {
       return JSON.stringify(value);
@@ -224,6 +303,12 @@ function formatExtraValue(value: unknown) {
   return String(value);
 }
 
+/**
+ * 判断值是否为可按键读取的非数组对象。
+ *
+ * @param value 待判断值。
+ * @returns 值为普通记录时返回 true。
+ */
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }

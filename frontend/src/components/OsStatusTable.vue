@@ -98,6 +98,12 @@ const tableRows = computed(() =>
   })),
 );
 
+/**
+ * 按兼容字段优先级读取机器标识。
+ *
+ * @param row OS 监控行。
+ * @returns 第一个有效机器标识或占位符。
+ */
 function getMachineName(row: MonitorRow) {
   return (
     row.machine_tag ||
@@ -112,6 +118,12 @@ function getMachineName(row: MonitorRow) {
   );
 }
 
+/**
+ * 组合分组与机器标签作为 OS 行标题。
+ *
+ * @param row OS 监控行。
+ * @returns ``分组/机器`` 标签；缺少分组时使用“未分组”。
+ */
 function formatOsLabel(row: MonitorRow) {
   const machineTag = String(row.machine_tag ?? '').trim();
   if (!machineTag) return '-';
@@ -120,34 +132,78 @@ function formatOsLabel(row: MonitorRow) {
   return group ? `${group}/${machineTag}` : `未分组/${machineTag}`;
 }
 
+/**
+ * 按兼容字段优先级读取更新时间。
+ *
+ * @param row OS 监控行。
+ * @returns 第一个有效时间或占位符。
+ */
 function getUpdateTime(row: MonitorRow) {
   return row.update_time || row.updated_at || row.collect_time || row.timestamp || '-';
 }
 
+/**
+ * 把比例指标格式化为一位小数的百分比文本。
+ *
+ * @param value 原始比例值。
+ * @returns 百分比文本或占位符。
+ */
 function formatPercent(value: unknown) {
   const percent = metricPercent(value);
   return percent === null ? '-' : `${percent.toFixed(1)}%`;
 }
 
+/**
+ * 判断指标是否能转换为有效数值。
+ *
+ * @param value 原始指标值。
+ * @returns 可转换时返回 true。
+ */
 function hasMetric(value: unknown) {
   return metricPercent(value) !== null;
 }
 
+/**
+ * 计算进度条使用的百分比并限制最大宽度。
+ *
+ * @param value 原始比例值。
+ * @returns 0 到 100 范围内的进度条百分比。
+ */
 function metricBarPercent(value: unknown) {
   const percent = metricPercent(value);
   if (percent === null) return 0;
+  // 仅限制进度条的视觉宽度，旁边的文本仍保留实际换算值。
   return Math.min(percent, 100);
 }
 
+/**
+ * 根据指标告警标记选择进度条状态。
+ *
+ * @param alarm 原始告警标记。
+ * @returns 告警时返回 exception，否则返回 normal。
+ */
 function metricStatus(alarm: unknown) {
   return flag(alarm) ? 'exception' : 'normal';
 }
 
+/**
+ * 把接口比例值换算为百分数。
+ *
+ * @param value 原始比例值。
+ * @returns 百分数；无法转换时返回 null。
+ */
 function metricPercent(value: unknown) {
+  // 接口中的资源使用率是比例值，组件统一换算为百分数再展示。
   const numberValue = metricValue(value);
   return numberValue === null ? null : numberValue * 100;
 }
 
+/**
+ * 把未知类型指标转换为有限数值。
+ *
+ * @param value 原始指标值。
+ * @returns 有限数值；空值或非法数值返回 null。
+ */
 function metricValue(value: unknown) {
   if (value === null || value === undefined || value === '') return null;
   const numberValue = Number(value);
@@ -155,6 +211,12 @@ function metricValue(value: unknown) {
   return numberValue;
 }
 
+/**
+ * 兼容布尔值、数字和字符串形式的真值标记。
+ *
+ * @param value 原始标记值。
+ * @returns 值表示 true 或 1 时返回 true。
+ */
 function flag(value: unknown) {
   return value === true || value === 1 || value === '1';
 }

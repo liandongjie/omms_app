@@ -231,6 +231,7 @@ const activeSection = ref<SectionKey>('overview');
 const sectionRefs = new Map<SectionKey, HTMLElement>();
 let refreshTimer: number | undefined;
 
+// OS 与进程列表统一取接口第一页；分组切换时只替换 group，保持请求口径一致。
 const baseListParams: Omit<MonitorListParams, 'group'> = {
   page_no: 1,
   page_size: 100,
@@ -242,6 +243,7 @@ const visibleOsRows = computed(() =>
   [...filterRows(osRows.value, osOnlyError.value)].sort(compareOsRows),
 );
 const visibleProcessRows = computed(() => filterRows(processRows.value, processOnlyError.value));
+// “全部”视图按分组拆给不同表格；指定分组时仍复用对应的过滤结果。
 const normalizedProcessGroup = computed(() => processGroup.value.trim());
 const opProcessRows = computed(() => visibleProcessRows.value.filter((row) => normalizeGroup(row.group) === 'op'));
 const algoProcessRows = computed(() =>
@@ -267,6 +269,7 @@ const groupOptions = computed<GroupOption[]>(() => [
   })),
 ]);
 
+// 优先读取总览接口的兼容字段；字段缺失时用当前明细数据生成可展示的兜底统计。
 const statCards = computed<StatBlock[]>(() => [
   resolveStatBlock('OS 状态', ['os', 'os_status', 'osStatus', 'os_total', 'osTotal'], {
     total: osRows.value.length,
@@ -313,6 +316,12 @@ watch(logOnlyError, () => {
   void loadLogRows();
 });
 
+/**
+ * 创建用于登记页面区块元素的 ref 回调。
+ *
+ * @param key 区块标识。
+ * @returns 接收组件或 DOM 元素并更新区块映射的回调。
+ */
 function setSectionRef(key: SectionKey) {
   return (element: Element | ComponentPublicInstance | null) => {
     if (element instanceof HTMLElement) {
@@ -321,11 +330,23 @@ function setSectionRef(key: SectionKey) {
   };
 }
 
+/**
+ * 激活侧边栏区块并平滑滚动到对应位置。
+ *
+ * @param key 目标区块标识。
+ */
 function scrollToSection(key: SectionKey) {
   activeSection.value = key;
   sectionRefs.get(key)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
+/**
+ * 加载并归一化监控分组列表。
+ *
+ * 请求失败时清空分组并记录警告，避免阻断其他监控数据加载。
+ *
+ * @returns 分组请求完成后的 Promise。
+ */
 async function loadGroupItems() {
   groupLoading.value = true;
 
@@ -340,7 +361,15 @@ async function loadGroupItems() {
   }
 }
 
+/**
+ * 并发刷新总览、OS、进程和日志数据。
+ *
+ * 同一时刻只允许一轮刷新；任一请求失败时统一展示页面级错误。
+ *
+ * @returns 本轮刷新完成后的 Promise。
+ */
 async function refreshAll() {
+  // 自动刷新和手动刷新共用入口，防止上一轮请求未结束时再次并发刷新。
   if (refreshing.value) return;
 
   refreshing.value = true;
@@ -364,10 +393,21 @@ async function refreshAll() {
   }
 }
 
+/**
+ * 加载总览统计并更新卡片数据源。
+ *
+ * @returns 总览请求完成后的 Promise。
+ */
 async function loadOverviewTotal() {
   overviewTotal.value = await fetchOverviewTotal();
 }
 
+/**
+ * 按分组加载 OS 状态列表。
+ *
+ * @param group 分组名称，空字符串表示全部。
+ * @returns OS 请求完成后的 Promise。
+ */
 async function loadOsRows(group: string) {
   osLoading.value = true;
   try {
@@ -378,6 +418,12 @@ async function loadOsRows(group: string) {
   }
 }
 
+/**
+ * 按分组加载进程状态列表。
+ *
+ * @param group 分组名称，空字符串表示全部。
+ * @returns 进程请求完成后的 Promise。
+ */
 async function loadProcessRows(group: string) {
   processLoading.value = true;
   try {
@@ -388,12 +434,20 @@ async function loadProcessRows(group: string) {
   }
 }
 
+/**
+ * 使用当前日志筛选和分页状态加载日志列表。
+ *
+ * 同时兼容数组响应与带分页元数据的对象响应，并单独维护日志错误提示。
+ *
+ * @returns 日志请求完成后的 Promise。
+ */
 async function loadLogRows() {
   logLoading.value = true;
   logErrorMessage.value = '';
   try {
     const data = await fetchOverviewLogList(buildLogListParams());
     logRows.value = normalizeRows(data);
+    // 同时兼容直接数组和带分页元数据的接口响应。
     if (Array.isArray(data)) {
       logTotal.value = data.length;
     } else {
@@ -410,19 +464,43 @@ async function loadLogRows() {
   }
 }
 
+/**
+ * 响应 OS 分组变化并通过统一错误处理重新加载列表。
+ *
+ * @param value 新分组值。
+ * @returns 分组切换处理完成后的 Promise。
+ */
 async function handleOsGroupChange(value: string) {
   await runAction(() => loadOsRows(value));
 }
 
+/**
+ * 响应进程分组变化并通过统一错误处理重新加载列表。
+ *
+ * @param value 新分组值。
+ * @returns 分组切换处理完成后的 Promise。
+ */
 async function handleProcessGroupChange(value: string) {
   await runAction(() => loadProcessRows(value));
 }
 
+/**
+ * 响应日志分组变化，重置页码后重新加载日志。
+ *
+ * @returns 日志刷新完成后的 Promise。
+ */
 async function handleLogGroupChange() {
+  // 筛选条件变化后回到第一页，避免沿用旧页码得到空列表。
   logPageNo.value = 1;
   await loadLogRows();
 }
 
+/**
+ * 提交机器标识搜索条件并从第一页加载日志。
+ *
+ * @param value 搜索框中的机器标识。
+ * @returns 日志刷新完成后的 Promise。
+ */
 async function handleLogMachineTagSearch(value: string) {
   const machineTag = value.trim();
   logMachineTagInput.value = machineTag;
@@ -431,8 +509,14 @@ async function handleLogMachineTagSearch(value: string) {
   await loadLogRows();
 }
 
+/**
+ * 处理机器标识输入变化，并在清空已生效条件时立即刷新日志。
+ *
+ * @param event 输入框 change 事件。
+ */
 function handleLogMachineTagInputChange(event: Event) {
   const value = (event.target as HTMLInputElement | null)?.value ?? logMachineTagInput.value;
+  // 普通输入等待显式搜索；只有清空已生效的条件时才立即重新请求。
   if (value.trim() || !logMachineTag.value) return;
 
   logMachineTagInput.value = '';
@@ -441,11 +525,23 @@ function handleLogMachineTagInputChange(event: Event) {
   void loadLogRows();
 }
 
+/**
+ * 切换日志页码并请求对应页面。
+ *
+ * @param pageNo 目标页码。
+ * @returns 日志刷新完成后的 Promise。
+ */
 async function handleLogPageChange(pageNo: number) {
   logPageNo.value = pageNo;
   await loadLogRows();
 }
 
+/**
+ * 执行页面操作并统一转换、展示异常信息。
+ *
+ * @param action 待执行的异步操作。
+ * @returns 操作处理完成后的 Promise。
+ */
 async function runAction(action: () => Promise<void>) {
   errorMessage.value = '';
   try {
@@ -457,11 +553,17 @@ async function runAction(action: () => Promise<void>) {
   }
 }
 
+/**
+ * 启动唯一的自动刷新定时器。
+ */
 function startAutoRefresh() {
   if (refreshTimer) return;
   refreshTimer = window.setInterval(refreshAll, AUTO_REFRESH_INTERVAL_MS);
 }
 
+/**
+ * 清除自动刷新定时器并重置定时器引用。
+ */
 function stopAutoRefresh() {
   if (refreshTimer) {
     window.clearInterval(refreshTimer);
@@ -469,6 +571,11 @@ function stopAutoRefresh() {
   }
 }
 
+/**
+ * 根据当前筛选和分页状态构造日志请求参数。
+ *
+ * @returns 可直接传给日志 API 的参数对象。
+ */
 function buildLogListParams(): LogListParams {
   return {
     group: logGroup.value,
@@ -483,11 +590,24 @@ function buildLogListParams(): LogListParams {
   };
 }
 
+/**
+ * 从数组或多种兼容响应字段中提取列表数据。
+ *
+ * @param data API 返回的数组或列表包装对象。
+ * @returns 归一化后的条目数组，无法识别时返回空数组。
+ */
 function normalizeRows<T>(data: MonitorListData<T> | T[]) {
+  // 后端兼容接口可能使用不同列表字段名，这里统一收敛为数组供组件消费。
   if (Array.isArray(data)) return data;
   return data.details || data.list || data.records || data.items || data.rows || data.data || [];
 }
 
+/**
+ * 清理、去重并补齐分组展示名称。
+ *
+ * @param items API 返回的可选分组数组。
+ * @returns 有效且按首次出现顺序保留的分组数组。
+ */
 function normalizeGroupItems(items?: MonitorGroupItem[]) {
   const seen = new Set<string>();
 
@@ -501,10 +621,23 @@ function normalizeGroupItems(items?: MonitorGroupItem[]) {
   });
 }
 
+/**
+ * 把未知类型的分组值归一化为去除首尾空格的字符串。
+ *
+ * @param group 原始分组值。
+ * @returns 归一化后的分组字符串。
+ */
 function normalizeGroup(group: unknown) {
   return String(group ?? '').trim();
 }
 
+/**
+ * 按“有分组优先、分组名、机器标签”比较 OS 行。
+ *
+ * @param a 左侧 OS 行。
+ * @param b 右侧 OS 行。
+ * @returns 供 Array.sort 使用的比较结果。
+ */
 function compareOsRows(a: MonitorRow, b: MonitorRow) {
   const groupA = normalizeGroup(a.group);
   const groupB = normalizeGroup(b.group);
@@ -518,27 +651,67 @@ function compareOsRows(a: MonitorRow, b: MonitorRow) {
   return String(a.machine_tag ?? '').trim().localeCompare(String(b.machine_tag ?? '').trim());
 }
 
+/**
+ * 根据“仅异常”开关筛选监控行。
+ *
+ * @param rows 原始监控行。
+ * @param onlyError 是否仅保留异常行。
+ * @returns 原数组或过滤后的新数组。
+ */
 function filterRows(rows: MonitorRow[], onlyError: boolean) {
   return onlyError ? rows.filter((row) => isExceptionRow(row)) : rows;
 }
 
+/**
+ * 判断监控行是否被标记为告警或离线。
+ *
+ * @param row 监控行。
+ * @returns 任一异常标记为 1 时返回 true。
+ */
 function isExceptionRow(row: MonitorRow) {
   return Number(row.is_alarm) === 1 || Number(row.is_offline) === 1;
 }
 
+/**
+ * 统计带告警标记的行数。
+ *
+ * @param rows 含可选告警标记的行。
+ * @returns 告警行数量。
+ */
 function countAlarm(rows: Array<{ is_alarm?: unknown }>) {
   return rows.filter((row) => flag(row.is_alarm)).length;
 }
 
+/**
+ * 统计带离线标记的监控行数。
+ *
+ * @param rows 监控行数组。
+ * @returns 离线行数量。
+ */
 function countOffline(rows: MonitorRow[]) {
   return rows.filter((row) => flag(row.is_offline)).length;
 }
 
+/**
+ * 兼容布尔值、数字和字符串形式的真值标记。
+ *
+ * @param value 原始标记值。
+ * @returns 值表示 true 或 1 时返回 true。
+ */
 function flag(value: unknown) {
   return value === true || value === 1 || value === '1';
 }
 
+/**
+ * 从兼容字段中解析统计卡片，并为缺失数字应用明细兜底值。
+ *
+ * @param title 卡片标题。
+ * @param blockKeys 可能的统计块字段名。
+ * @param fallback 明细数据计算出的兜底统计。
+ * @returns 完整的统计卡片数据。
+ */
 function resolveStatBlock(title: string, blockKeys: string[], fallback: Omit<StatBlock, 'title'>): StatBlock {
+  // 依次尝试新旧字段命名；都不存在时 findStatBlock 会回退到响应根对象。
   const source = overviewTotal.value;
   const block = findStatBlock(source, blockKeys);
 
@@ -550,6 +723,13 @@ function resolveStatBlock(title: string, blockKeys: string[], fallback: Omit<Sta
   };
 }
 
+/**
+ * 查找第一个对象形式的统计块。
+ *
+ * @param source 总览响应对象。
+ * @param blockKeys 候选字段名列表。
+ * @returns 找到的统计块；没有匹配时返回响应根对象。
+ */
 function findStatBlock(source: OverviewTotalData, blockKeys: string[]) {
   for (const key of blockKeys) {
     const directValue = source[key];
@@ -559,6 +739,14 @@ function findStatBlock(source: OverviewTotalData, blockKeys: string[]) {
   return source;
 }
 
+/**
+ * 从候选字段中读取第一个有限数值。
+ *
+ * @param source 待读取的对象。
+ * @param keys 候选数值字段名。
+ * @param fallback 无有效字段时使用的值。
+ * @returns 解析后的有限数值或兜底值。
+ */
 function readNumber(source: Record<string, unknown>, keys: string[], fallback: number) {
   for (const key of keys) {
     const value = source[key];
@@ -569,6 +757,12 @@ function readNumber(source: Record<string, unknown>, keys: string[], fallback: n
   return fallback;
 }
 
+/**
+ * 判断值是否为非数组对象。
+ *
+ * @param value 待判断值。
+ * @returns 值可作为普通记录读取时返回 true。
+ */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }

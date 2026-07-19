@@ -75,6 +75,7 @@ const emit = defineEmits<{
   changePage: [pageNo: number];
 }>();
 
+// 分页状态由父组件和后端维护，表格只展示当前页并上报页码变化。
 const paginationConfig = computed(() => ({
   current: props.pageNo,
   pageSize: props.pageSize,
@@ -92,15 +93,34 @@ const columns: TableColumnsType = [
   { title: '操作', key: 'action', width: 110 },
 ];
 
+/**
+ * 把表格页码变化上报给父组件。
+ *
+ * @param pagination Ant Design Table 返回的分页状态。
+ */
 function handleTableChange(pagination: { current?: number }) {
   if (pagination.current) emit('changePage', pagination.current);
 }
 
+/**
+ * 为日志行生成主键或兼容回退键。
+ *
+ * @param record 日志行。
+ * @param index 当前页内的可选行索引。
+ * @returns 日志主键或由机器、时间和索引组成的字符串。
+ */
 function resolveRowKey(record: LogRow, index?: number) {
+  // 优先使用日志主键；兼容数据缺少主键时，以机器和时间组合出稳定回退键。
   if (record.log_id !== undefined) return record.log_id;
   return `${record.machine_tag || 'log'}-${record.update_time || record.date || index || 0}`;
 }
 
+/**
+ * 根据日志级别选择标签颜色。
+ *
+ * @param level 原始日志级别。
+ * @returns Ant Design Tag 使用的颜色名称。
+ */
 function levelColor(level?: string) {
   const normalized = level?.toLowerCase();
   if (normalized === 'error') return 'red';
@@ -110,10 +130,22 @@ function levelColor(level?: string) {
 }
 
 
+/**
+ * 判断日志行是否包含可复制的非空内容。
+ *
+ * @param record 日志行。
+ * @returns 日志正文包含非空字符时返回 true。
+ */
 function hasLogContent(record: LogRow) {
   return Boolean(record.log?.trim());
 }
 
+/**
+ * 把日志正文写入浏览器剪贴板并反馈结果。
+ *
+ * @param record 要复制的日志行。
+ * @returns 剪贴板操作完成后的 Promise。
+ */
 async function copyLogContent(record: LogRow) {
   const text = record.log || '';
 
@@ -122,6 +154,7 @@ async function copyLogContent(record: LogRow) {
     return;
   }
 
+  // 浏览器不支持剪贴板 API 或写入被拒绝时，不做静默失败并提示手动复制。
   if (!navigator.clipboard?.writeText) {
     message.error('复制失败，请手动复制');
     return;
