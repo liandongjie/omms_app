@@ -5,7 +5,7 @@
     :columns="columns"
     :data-source="tableRows"
     :loading="loading"
-    :pagination="{ pageSize: 10, showSizeChanger: false }"
+    :pagination="false"
   >
     <template #bodyCell="{ column, record }">
       <template v-if="column.key === 'label'">
