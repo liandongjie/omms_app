@@ -141,6 +141,7 @@ const columns: TableColumnsType = [
   { title: '操作', key: 'action', width: 120, align: 'center' },
 ];
 
+// 在进入模板前一次性补齐稳定行键和 roundtrip 展示模型，避免单元格重复解析 extra。
 const tableRows = computed(() =>
   props.rows.map((row, index) => ({
     __rowKey: row.id ?? `${row.machine_tag || 'machine'}-${getProcessName(row)}-${row.pid ?? 'pid'}-${index}`,
@@ -150,6 +151,12 @@ const tableRows = computed(() =>
   })),
 );
 
+/**
+ * 组合分组与机器标签作为进程行标题。
+ *
+ * @param row 进程监控行。
+ * @returns ``分组/机器`` 标签；缺少分组时使用“未分组”。
+ */
 function formatProcessLabel(row: MonitorRow) {
   const machineTag = String(row.machine_tag ?? '').trim();
   if (!machineTag) return '-';
@@ -158,19 +165,44 @@ function formatProcessLabel(row: MonitorRow) {
   return group ? `${group}/${machineTag}` : `未分组/${machineTag}`;
 }
 
+/**
+ * 按兼容字段优先级读取进程名称。
+ *
+ * @param row 进程监控行。
+ * @returns 进程名称或占位符。
+ */
 function getProcessName(row: MonitorRow) {
   return row.process_name || row.proc_name || row.name || '-';
 }
 
+/**
+ * 判断进程是否来自配置项。
+ *
+ * @param row 进程监控行。
+ * @returns 仅显式为 false 时返回 false。
+ */
 function isConfigured(row: MonitorRow) {
   return row.is_configured !== false;
 }
 
+/**
+ * 判断值是否包含非空内容。
+ *
+ * @param value 待检查值。
+ * @returns 值非 null、undefined 和空字符串时返回 true。
+ */
 function hasValue(value: unknown) {
   return value !== null && value !== undefined && String(value).trim() !== '';
 }
 
+/**
+ * 识别已配置但尚无运行指标的进程行。
+ *
+ * @param row 进程监控行。
+ * @returns 缺少关键指标且没有异常标记时返回 true。
+ */
 function isNoReportRow(row: MonitorRow) {
+  // 已配置但没有任何运行指标，且后端未标记异常/离线时，单独显示“暂无上报数据”。
   return (
     isConfigured(row) &&
     !hasValue(row.pid) &&
@@ -184,14 +216,33 @@ function isNoReportRow(row: MonitorRow) {
   );
 }
 
+/**
+ * 按兼容字段优先级读取更新时间。
+ *
+ * @param row 进程监控行。
+ * @returns 第一个有效时间或占位符。
+ */
 function getUpdateTime(row: MonitorRow) {
   return row.update_time || row.updated_at || row.collect_time || row.timestamp || '-';
 }
 
+/**
+ * 安全读取进程 extra 中的指定字段。
+ *
+ * @param row 进程监控行。
+ * @param key extra 字段名。
+ * @returns 字段值；extra 不是普通对象时返回 undefined。
+ */
 function getExtra(row: MonitorRow, key: string) {
   return isPlainRecord(row.extra) ? row.extra[key] : undefined;
 }
 
+/**
+ * 把未知类型值格式化为表格文本。
+ *
+ * @param value 原始值。
+ * @returns 规范化文本；空值返回占位符。
+ */
 function formatValue(value: unknown) {
   if (value === null || value === undefined || value === '') return '-';
   if (typeof value === 'number') {
@@ -203,17 +254,32 @@ function formatValue(value: unknown) {
   return String(value);
 }
 
+/**
+ * 把 ord_dist 的数组、对象或标量格式化为稳定文本。
+ *
+ * @param value 原始 ord_dist 值。
+ * @returns 使用连字符连接的展示文本或占位符。
+ */
 function formatOrdDist(value: unknown) {
   if (Array.isArray(value)) {
     return value.length ? value.map((item) => formatValue(item)).join('-') : '-';
   }
   if (!isPlainRecord(value)) return formatValue(value);
 
+  // 对象按 key 排序后只展示 value，确保相同数据每次渲染顺序一致。
   const entries = Object.entries(value).sort(([left], [right]) => left.localeCompare(right));
   return entries.length ? entries.map(([, item]) => formatValue(item)).join('-') : '-';
 }
 
+/**
+ * 从 extra.roundtrip 中提取一组往返指标展示模型。
+ *
+ * @param row 进程监控行。
+ * @param key roundtrip 子项键。
+ * @returns 包含 mean、std、p50、p90、空值标记和提示文本的对象。
+ */
 function formatRoundtrip(row: MonitorRow, key: 'r0' | 'r1') {
+  // roundtrip 位于 extra 的嵌套对象中，缺失或类型不符时按空指标处理。
   const roundtrip = getExtra(row, 'roundtrip');
   const metrics: Record<string, unknown> =
     isPlainRecord(roundtrip) && isPlainRecord(roundtrip[key]) ? roundtrip[key] : {};
@@ -232,22 +298,46 @@ function formatRoundtrip(row: MonitorRow, key: 'r0' | 'r1') {
   };
 }
 
+/**
+ * 归一化单个 roundtrip 指标。
+ *
+ * @param value 数字或数字字符串。
+ * @returns 缩放并保留一位小数的文本；非法值返回占位符。
+ */
 function formatRoundtripMetric(value: unknown) {
   if (typeof value !== 'number' && typeof value !== 'string') return '-';
   if (typeof value === 'string' && !value.trim()) return '-';
 
+  // 数字和数字字符串共用既有的千分缩放展示规则，非法值统一显示为空。
   const numberValue = Number(value);
   return Number.isFinite(numberValue) ? (numberValue / 1000).toFixed(1) : '-';
 }
 
+/**
+ * 提示指定进程操作尚未接入。
+ *
+ * @param action 用户点击的操作名称。
+ */
 function showUnavailable(action: '重启' | '停止') {
   message.info(`${action}功能暂未接入`);
 }
 
+/**
+ * 为占位值返回弱化显示样式。
+ *
+ * @param value 已格式化的文本。
+ * @returns 占位样式类名或 undefined。
+ */
 function valueClass(value: string | undefined) {
   return value === '-' ? 'empty-value' : undefined;
 }
 
+/**
+ * 判断值是否为可按键读取的非数组对象。
+ *
+ * @param value 待判断值。
+ * @returns 值为普通记录时返回 true。
+ */
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
