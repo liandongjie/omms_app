@@ -64,9 +64,11 @@ class MonitorOverviewOsItem(BaseModel):
     cpu_usage: float | None = None
     mem_usage: float | None = None
     disk_usage: float | None = None
+    disk_home_usage: float | None = None
     cpu_alarm: int = 0
     mem_alarm: int = 0
     disk_alarm: int = 0
+    disk_home_alarm: int = 0
     update_time: str | None = None
     is_offline: int = 0
     is_alarm: int = 0

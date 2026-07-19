@@ -37,9 +37,11 @@ class OsStateItem(BaseModel):
     cpu_usage: float | None = None
     memory_usage: float | None = None
     disk_usage: float | None = None
+    disk_home_usage: float | None = None
     cpu_alarm: int = 0
     mem_alarm: int = 0
     disk_alarm: int = 0
+    disk_home_alarm: int = 0
     status: str
     message: str
     update_time: str | None = None

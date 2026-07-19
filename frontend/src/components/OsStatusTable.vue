@@ -34,15 +34,32 @@
         <span v-else>-</span>
       </template>
       <template v-else-if="column.key === 'disk_usage'">
-        <div v-if="hasMetric(record.disk_usage)" class="os-metric-progress">
-          <a-progress
-            size="small"
-            :percent="metricBarPercent(record.disk_usage)"
-            :status="metricStatus(record.disk_alarm)"
-            :format="() => formatPercent(record.disk_usage)"
-          />
+        <div class="os-disk-metrics">
+          <div class="os-disk-metric">
+            <span class="os-disk-label">disk</span>
+            <div v-if="hasMetric(record.disk_usage)" class="os-metric-progress">
+              <a-progress
+                size="small"
+                :percent="metricBarPercent(record.disk_usage)"
+                :status="metricStatus(record.disk_alarm)"
+                :format="() => formatPercent(record.disk_usage)"
+              />
+            </div>
+            <span v-else>-</span>
+          </div>
+          <div class="os-disk-metric">
+            <span class="os-disk-label">disk_home</span>
+            <div v-if="hasMetric(record.disk_home_usage)" class="os-metric-progress">
+              <a-progress
+                size="small"
+                :percent="metricBarPercent(record.disk_home_usage)"
+                :status="metricStatus(record.disk_home_alarm)"
+                :format="() => formatPercent(record.disk_home_usage)"
+              />
+            </div>
+            <span v-else>-</span>
+          </div>
         </div>
-        <span v-else>-</span>
       </template>
       <template v-else-if="column.key === 'update_time'">
         {{ getUpdateTime(record) }}
@@ -69,7 +86,7 @@ const columns: TableColumnsType = [
   { title: '标签', key: 'label', width: 220 },
   { title: 'CPU 使用率', key: 'cpu_usage', width: 160 },
   { title: '内存使用率', key: 'mem_usage', width: 160 },
-  { title: '磁盘使用率', key: 'disk_usage', width: 160 },
+  { title: '磁盘使用率', key: 'disk_usage', width: 240 },
   { title: '更新时间', key: 'update_time', width: 190 },
   { title: '状态', key: 'status', width: 110, align: 'center' },
 ];
@@ -147,5 +164,24 @@ function flag(value: unknown) {
 .os-metric-progress {
   width: 120px;
   max-width: 100%;
+}
+
+.os-disk-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.os-disk-metric {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.os-disk-label {
+  width: 68px;
+  flex: 0 0 68px;
+  color: rgba(0, 0, 0, 0.65);
+  font-size: 12px;
 }
 </style>
