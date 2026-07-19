@@ -128,6 +128,67 @@ def test_os_decimal_metric_values_under_threshold_are_normal():
     assert item.disk_usage == 0.808
     assert item.status == "normal"
 
+
+def test_os_disk_home_uses_raw_value_and_disk_threshold():
+    item = FakeOpsService(
+        [cfg()],
+        [state(dat='{"cpu": 0.2, "mem": 0.2, "disk": 0.3, "disk_home": 0.7}')],
+        settings=fake_settings(OPS_DISK_ALARM_THRESHOLD=0.7),
+    ).get_os_states(date="20260625")[0]
+
+    assert item.disk_usage == 0.3
+    assert item.disk_home_usage == 0.7
+    assert item.disk_alarm == 0
+    assert item.disk_home_alarm == 1
+    assert item.status == "error"
+
+
+def test_os_disk_and_disk_home_alarms_are_independent():
+    disk_alarm = FakeOpsService(
+        [cfg()],
+        [state(dat='{"cpu": 0.2, "mem": 0.2, "disk": 0.8, "disk_home": 0.4}')],
+        settings=fake_settings(OPS_DISK_ALARM_THRESHOLD=0.7),
+    ).get_os_states(date="20260625")[0]
+    disk_home_alarm = FakeOpsService(
+        [cfg()],
+        [state(dat='{"cpu": 0.2, "mem": 0.2, "disk": 0.4, "disk_home": 0.8}')],
+        settings=fake_settings(OPS_DISK_ALARM_THRESHOLD=0.7),
+    ).get_os_states(date="20260625")[0]
+
+    assert (disk_alarm.disk_alarm, disk_alarm.disk_home_alarm) == (1, 0)
+    assert (disk_home_alarm.disk_alarm, disk_home_alarm.disk_home_alarm) == (0, 1)
+
+
+def test_os_missing_invalid_or_negative_disk_home_does_not_affect_required_metrics_status():
+    missing = FakeOpsService(
+        [cfg()],
+        [state(dat='{"cpu": 0.2, "mem": 0.3, "disk": 0.4}')],
+    ).get_os_states(date="20260625")[0]
+    invalid = FakeOpsService(
+        [cfg()],
+        [state(dat='{"cpu": 0.2, "mem": 0.3, "disk": 0.4, "disk_home": "bad"}')],
+    ).get_os_states(date="20260625")[0]
+    negative = FakeOpsService(
+        [cfg()],
+        [state(dat='{"cpu": 0.2, "mem": 0.3, "disk": 0.4, "disk_home": -1}')],
+    ).get_os_states(date="20260625")[0]
+
+    for item in (missing, invalid, negative):
+        assert item.disk_usage == 0.4
+        assert item.disk_home_usage is None
+        assert item.disk_home_alarm == 0
+        assert item.status == "normal"
+
+
+def test_os_offline_status_takes_priority_over_disk_home_alarm():
+    item = FakeOpsService(
+        [cfg(work_time="")],
+        [state(dat='{"cpu": 0.2, "mem": 0.3, "disk": 0.4, "disk_home": 1}', update_time=stale_time())],
+    ).get_os_states(date="20260625")[0]
+
+    assert item.disk_home_alarm == 1
+    assert item.status == "offline"
+
 def test_os_thresholds_use_settings():
     base_cfg = cfg()
 

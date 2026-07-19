@@ -290,9 +290,15 @@ class OpsService(BaseService):
         cpu = parse_metric_value(data.get("cpu"))
         mem = parse_metric_value(data.get("mem"))
         disk = parse_metric_value(data.get("disk"))
+        disk_home = parse_metric_value(data.get("disk_home"))
+        if disk_home is not None and disk_home < 0:
+            disk_home = None
         cpu_alarm = int(cpu is not None and cpu >= self.settings.OPS_CPU_ALARM_THRESHOLD)
         mem_alarm = int(mem is not None and mem >= self.settings.OPS_MEM_ALARM_THRESHOLD)
         disk_alarm = int(disk is not None and disk >= self.settings.OPS_DISK_ALARM_THRESHOLD)
+        disk_home_alarm = int(
+            disk_home is not None and disk_home >= self.settings.OPS_DISK_ALARM_THRESHOLD
+        )
 
         offline_minutes = self.settings.OPS_OFFLINE_TIMEOUT_MINUTES
         if monitoring_now and is_stale(state.update_time, minutes=offline_minutes, now=now):
@@ -313,6 +319,9 @@ class OpsService(BaseService):
         elif disk >= self.settings.OPS_DISK_ALARM_THRESHOLD:
             status = "error"
             message = f"disk usage too high: {disk:g}"
+        elif disk_home_alarm:
+            status = "error"
+            message = f"disk_home usage too high: {disk_home:g}"
         else:
             status = "normal"
             message = "normal"
@@ -323,9 +332,11 @@ class OpsService(BaseService):
             cpu_usage=cpu,
             memory_usage=mem,
             disk_usage=disk,
+            disk_home_usage=disk_home,
             cpu_alarm=cpu_alarm,
             mem_alarm=mem_alarm,
             disk_alarm=disk_alarm,
+            disk_home_alarm=disk_home_alarm,
             status=status,
             message=message,
             update_time=state.update_time,
