@@ -452,6 +452,32 @@ def test_process_args_stay_none_when_state_missing_and_cfg_value_empty():
     assert item.args is None
 
 
+def test_process_args_fall_back_to_cfg_value_when_matched_state_value_is_empty():
+    service = FakeOpsService()
+    process_cfg = cfg(cfg_type="process", cfg_key="tlBinTradeLite", value="cfg.yaml")
+
+    for state_value in (None, "", "   "):
+        row = state(
+            state_type="process",
+            state_key="./bin/tlBinTradeLite",
+            value=state_value,
+        )
+
+        assert service._build_process_item(process_cfg, row).args == "cfg.yaml"
+
+
+def test_process_args_stay_none_when_matched_state_and_cfg_values_are_empty():
+    service = FakeOpsService()
+    process_cfg = cfg(cfg_type="process", cfg_key="tlBinTradeLite", value="   ")
+    row = state(
+        state_type="process",
+        state_key="./bin/tlBinTradeLite",
+        value="",
+    )
+
+    assert service._build_process_item(process_cfg, row).args is None
+
+
 def test_process_stale_state_is_offline_only_inside_work_time():
     row = state(
         state_type="process",
@@ -471,8 +497,10 @@ def test_process_stale_state_is_offline_only_inside_work_time():
     ).get_process_states(date="20260625")[0]
 
     assert inside.status == "offline"
+    assert inside.args == "['sys_simnow.yaml']"
     assert inside.pid == 103833
     assert outside.status == "normal"
+    assert outside.args == "['sys_simnow.yaml']"
     assert outside.pid == 103833
 
 

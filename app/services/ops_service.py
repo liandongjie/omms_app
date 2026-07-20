@@ -571,11 +571,10 @@ class OpsService(BaseService):
         now = self._now()
         monitoring_now = is_in_work_time(cfg.work_time, now=now)
 
-        # 有实际上报时优先使用 state.value；未匹配到 state 时回退到 cfg.value 帮助定位配置。
-        # cfg.value 不代表实际运行参数，不补全或推测其他参数；空值规范化后保持 None。
-        args = self._normalize_process_args(
-            state.value if state is not None else cfg.value
-        )
+        # 有效的实际上报参数优先；state.value 为空时才用 cfg.value 兜底。
+        # cfg.value 只原样补充已配置参数，不能推测或补全实际启动参数。
+        state_args = self._normalize_process_args(state.value) if state is not None else None
+        args = state_args or self._normalize_process_args(cfg.value)
 
         # 与 OS 一致，配置项只在工作时间内因缺少对应状态被判为离线。
         if state is None:
