@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 # 导入依赖
-from collections import Counter
-from datetime import datetime
+import logging
+from collections import Counter, OrderedDict
+from datetime import datetime, time
+from threading import Lock
 from typing import Any, Iterable
 
 from fastapi import Depends
@@ -29,8 +31,12 @@ from app.utils.ops_parse import (
     is_stale,
     parse_dat,
     parse_metric_value,
+    parse_process_args,
+    parse_update_time,
     today_yyyymmdd,
 )
+
+logger = logging.getLogger(__name__)
 
 # 定义公共常量
 ABNORMAL_STATUSES = {
@@ -51,6 +57,45 @@ PROCESS_EXTRA_EXCLUDED_KEYS = {
     "pname",
     "process_name",
 }
+PROCESS_WARNING_CACHE_MAXSIZE = 1024
+PROCESS_AM_START = time(8, 0, 0)
+PROCESS_PM_START = time(18, 0, 0)
+SENSITIVE_PROCESS_ARG_NAMES = {
+    "password",
+    "passwd",
+    "pwd",
+    "token",
+    "secret",
+    "dsn",
+    "database_url",
+    "database-url",
+    "db_url",
+    "db-url",
+    "connection_string",
+    "connection-string",
+}
+_PROCESS_WARNING_KEYS: OrderedDict[tuple, None] = OrderedDict()
+_PROCESS_WARNING_LOCK = Lock()
+
+
+def _should_log_process_warning(key: tuple) -> bool:
+    """Register a warning key in the bounded process-local LRU cache."""
+    with _PROCESS_WARNING_LOCK:
+        if key in _PROCESS_WARNING_KEYS:
+            _PROCESS_WARNING_KEYS.move_to_end(key)
+            return False
+
+        _PROCESS_WARNING_KEYS[key] = None
+        if len(_PROCESS_WARNING_KEYS) > PROCESS_WARNING_CACHE_MAXSIZE:
+            _PROCESS_WARNING_KEYS.popitem(last=False)
+        return True
+
+
+def _log_process_warning_once(key: tuple, message: str, *args: Any) -> None:
+    # Logging stays outside the cache lock so slow handlers cannot block polling requests.
+    should_log = _should_log_process_warning(key)
+    if should_log:
+        logger.warning(message, *args)
 
 
 class OpsService(BaseService):
@@ -177,8 +222,9 @@ class OpsService(BaseService):
         Returns:
             进程状态项列表，每个项包含进程配置信息和对应的监控状态
         """
-        # 确定目标日期，默认使用当天
-        target_date = date or today_yyyymmdd()
+        now = self._now()
+        # 确定目标日期，默认使用本次请求统一时钟对应的当天。
+        target_date = date or today_yyyymmdd(now)
         # 判断是否为全部分组查询
         is_all_group = self._is_all_group(group)
         # 获取活动的进程监控配置（全部分组时不传分组参数）
@@ -188,18 +234,67 @@ class OpsService(BaseService):
 
         items = []
         matched_state_ids = set()
-        # 遍历配置，为每个配置匹配对应的状态
+        # 遍历配置，为每个配置收集全部候选后再选择当前盘次的状态。
         for cfg in cfgs:
-            state = self._find_process_state(cfg, states)
-            if state is not None:
-                matched_state_ids.add(self._state_identity(state))
-            items.append(self._build_process_item(cfg, state))
+            candidates = self._find_process_state_candidates(cfg, states)
+            classified = [
+                (state, self._classify_process_session(state))
+                for state in candidates
+            ]
+            am_candidates = [state for state, session in classified if session == "am"]
+            pm_candidates = [state for state, session in classified if session == "pm"]
+            ambiguous_candidates = [
+                state for state, session in classified if session == "ambiguous"
+            ]
+            generic_candidates = [
+                state for state, session in classified if session == "generic"
+            ]
+
+            for state in candidates:
+                self._warn_if_process_args_mismatch(state)
+            for state in ambiguous_candidates:
+                self._warn_ambiguous_process_state(state)
+
+            session_mode = bool(
+                am_candidates or pm_candidates or ambiguous_candidates
+            )
+            if session_mode:
+                # 全部明确盘次及盘次不明的候选都属于 cfg；未选中的盘次也不能
+                # 在后续 state-only 处理中被误报为“未配置进程”。
+                matched_state_ids.update(
+                    self._state_identity(state)
+                    for state in am_candidates + pm_candidates + ambiguous_candidates
+                )
+                if generic_candidates:
+                    self._warn_mixed_process_candidates(
+                        cfg,
+                        am_candidates + pm_candidates + ambiguous_candidates,
+                        generic_candidates,
+                    )
+
+                # 盘次必须按本次请求统一的当前时间选择；目标盘次缺失时不能
+                # 回退到另一盘次或 generic，否则会展示旧盘次的进程指标。
+                target_session = (
+                    "am" if PROCESS_AM_START <= now.time() < PROCESS_PM_START else "pm"
+                )
+                target_candidates = (
+                    am_candidates if target_session == "am" else pm_candidates
+                )
+                selected_state = self._select_latest_process_state(target_candidates)
+            else:
+                # 普通模式同样收集全部候选，避免重复或历史状态变成 state-only。
+                matched_state_ids.update(
+                    self._state_identity(state) for state in generic_candidates
+                )
+                selected_state = self._select_latest_process_state(generic_candidates)
+
+            items.append(self._build_process_item(cfg, selected_state, now=now))
 
         # 若需要包含独立状态项且为全部分组查询，补充未匹配到配置的状态
         # matched_state_ids 用于避免已被配置消费的状态再次以“未配置进程”出现。
         if include_state_only and is_all_group:
             items.extend(
-                self._build_state_only_process_item(state)
+                self._build_state_only_process_item(state, now=now)
                 for state in states
                 if self._state_identity(state) not in matched_state_ids
             )
@@ -532,14 +627,13 @@ class OpsService(BaseService):
         )
 
     @staticmethod
-    def _find_process_state(cfg: OpsCfg, states: Iterable[OpsState]) -> OpsState | None:
-        """按机器和类型筛选，再用 cfg key/value 的包含关系匹配首条状态。
-
-        cfg key 必须出现在 state key 中；非空 cfg value 还必须出现在 state value 中。
-        cfg value 为空时不增加 value 条件。
-        """
+    def _find_process_state_candidates(
+        cfg: OpsCfg, states: Iterable[OpsState]
+    ) -> list[OpsState]:
+        """Collect every state satisfying the existing cfg containment rules."""
         cfg_key = cfg.cfg_key or ""
         cfg_value = cfg.value or ""
+        candidates = []
         for state in states:
             if state.machine_tag != cfg.machine_tag:
                 continue
@@ -554,21 +648,175 @@ class OpsService(BaseService):
             if cfg_value and cfg_value not in (state.value or ""):
                 continue
 
-            return state
-        return None
+            candidates.append(state)
+        return candidates
+
+    @staticmethod
+    def _classify_process_session(state: OpsState) -> str:
+        """Classify a state by AM/PM YAML filename suffixes in state.value."""
+        sessions = set()
+        for argument in parse_process_args(state.value):
+            normalized = argument.strip().lower()
+            if normalized.endswith("_am.yaml"):
+                sessions.add("am")
+            if normalized.endswith("_pm.yaml"):
+                sessions.add("pm")
+
+        if len(sessions) > 1:
+            return "ambiguous"
+        if sessions:
+            return sessions.pop()
+        return "generic"
+
+    @classmethod
+    def _select_latest_process_state(
+        cls, states: Iterable[OpsState]
+    ) -> OpsState | None:
+        """Select the newest state without using runtime metrics as tie-breakers."""
+
+        def sort_key(state: OpsState) -> tuple:
+            update_time = parse_update_time(state.update_time)
+            return (
+                update_time is not None,
+                update_time or datetime.min,
+                cls._state_sort_identity(state),
+            )
+
+        return max(states, key=sort_key, default=None)
 
     @staticmethod
     def _state_identity(state: OpsState) -> tuple:
         return (state.date, state.type, state.machine_tag, state.state_key, state.value)
 
     @staticmethod
+    def _state_sort_identity(state: OpsState) -> tuple[str, ...]:
+        return tuple(
+            "" if value is None else str(value)
+            for value in (
+                state.date,
+                state.type,
+                state.machine_tag,
+                state.state_key,
+                state.value,
+            )
+        )
+
+    @staticmethod
+    def _redact_process_args(arguments: Iterable[Any]) -> tuple[str, ...]:
+        redacted = []
+        redact_next = False
+        for argument in arguments:
+            text = str(argument)
+            if redact_next:
+                redacted.append("***")
+                redact_next = False
+                continue
+
+            normalized = text.lstrip("-").lower()
+            name, separator, _ = normalized.partition("=")
+            if separator and name in SENSITIVE_PROCESS_ARG_NAMES:
+                redacted.append(f"{text.split('=', 1)[0]}=***")
+            elif normalized in SENSITIVE_PROCESS_ARG_NAMES:
+                redacted.append(text)
+                redact_next = True
+            elif "://" in text and "@" in text:
+                redacted.append("***")
+            else:
+                redacted.append(text)
+        return tuple(redacted)
+
+    def _warning_state_identity(self, state: OpsState) -> tuple:
+        return (
+            state.date,
+            state.type,
+            state.machine_tag,
+            state.state_key,
+            self._redact_process_args(parse_process_args(state.value)),
+        )
+
+    def _warn_if_process_args_mismatch(self, state: OpsState) -> None:
+        data = parse_dat(state.dat)
+        dat_args = data.get("args")
+        if not isinstance(dat_args, list):
+            return
+
+        state_args = parse_process_args(state.value)
+        normalized_dat_args = [str(argument) for argument in dat_args]
+        if state_args == normalized_dat_args:
+            return
+
+        key = (
+            "args_mismatch",
+            self._state_sort_identity(state),
+            tuple(normalized_dat_args),
+        )
+        _log_process_warning_once(
+            key,
+            "process state args mismatch: date=%r machine_tag=%r state_key=%r "
+            "state_value=%r dat_args=%r",
+            state.date,
+            state.machine_tag,
+            state.state_key,
+            self._redact_process_args(state_args),
+            self._redact_process_args(normalized_dat_args),
+        )
+
+    def _warn_ambiguous_process_state(self, state: OpsState) -> None:
+        key = ("ambiguous_session", self._state_sort_identity(state))
+        _log_process_warning_once(
+            key,
+            "process state contains both AM and PM args: date=%r machine_tag=%r "
+            "state_key=%r state_value=%r",
+            state.date,
+            state.machine_tag,
+            state.state_key,
+            self._redact_process_args(parse_process_args(state.value)),
+        )
+
+    def _warn_mixed_process_candidates(
+        self,
+        cfg: OpsCfg,
+        session_candidates: Iterable[OpsState],
+        generic_candidates: Iterable[OpsState],
+    ) -> None:
+        session_identities = tuple(
+            sorted(self._state_sort_identity(state) for state in session_candidates)
+        )
+        generic_identities = tuple(
+            sorted(self._state_sort_identity(state) for state in generic_candidates)
+        )
+        cfg_identity = tuple(
+            "" if value is None else str(value)
+            for value in (cfg.type, cfg.machine_tag, cfg.cfg_key, cfg.value)
+        )
+        key = (
+            "session_generic_mixed",
+            cfg_identity,
+            session_identities,
+            generic_identities,
+        )
+        _log_process_warning_once(
+            key,
+            "process cfg matched session and generic states: machine_tag=%r "
+            "cfg_key=%r cfg_value=%r session_states=%r generic_states=%r",
+            cfg.machine_tag,
+            cfg.cfg_key,
+            self._redact_process_args(parse_process_args(cfg.value)),
+            tuple(self._warning_state_identity(state) for state in session_candidates),
+            tuple(self._warning_state_identity(state) for state in generic_candidates),
+        )
+
+    @staticmethod
     def _is_all_group(group: str | None) -> bool:
         return group is None or not group.strip() or group.strip().lower() == "all"
 
     def _build_process_item(
-        self, cfg: OpsCfg, state: OpsState | None
+        self,
+        cfg: OpsCfg,
+        state: OpsState | None,
+        now: datetime | None = None,
     ) -> ProcessStateItem:
-        now = self._now()
+        now = now or self._now()
         monitoring_now = is_in_work_time(cfg.work_time, now=now)
 
         # 有效的实际上报参数优先；state.value 为空时才用 cfg.value 兜底。
@@ -624,10 +872,12 @@ class OpsService(BaseService):
             extra=self._extract_process_extra(data),
         )
 
-    def _build_state_only_process_item(self, state: OpsState) -> ProcessStateItem:
+    def _build_state_only_process_item(
+        self, state: OpsState, now: datetime | None = None
+    ) -> ProcessStateItem:
         # state-only 没有对应 cfg，无法取得分组和工作时间，因此仅按上报时效判定离线；
         # is_configured=False 让调用方能够区分它与配置驱动的进程项。
-        now = self._now()
+        now = now or self._now()
         offline_minutes = self.settings.OPS_OFFLINE_TIMEOUT_MINUTES
         data = parse_dat(state.dat)
         process_name = (

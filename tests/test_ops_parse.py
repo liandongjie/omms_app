@@ -1,7 +1,14 @@
 # -*- coding: utf-8 -*-
 from datetime import datetime, timedelta
 
-from app.utils.ops_parse import is_in_work_time, is_stale, parse_dat, parse_metric_value, parse_update_time
+from app.utils.ops_parse import (
+    is_in_work_time,
+    is_stale,
+    parse_dat,
+    parse_metric_value,
+    parse_process_args,
+    parse_update_time,
+)
 
 
 def test_parse_dat_supports_json_and_python_dict_string():
@@ -15,6 +22,31 @@ def test_parse_dat_supports_json_and_python_dict_string():
 def test_parse_dat_failure_returns_empty_dict():
     assert parse_dat("{broken") == {}
     assert parse_dat(None) == {}
+
+
+def test_parse_process_args_supports_lists_serialized_lists_and_plain_text():
+    assert parse_process_args(["sys.yaml", "user_am.yaml"]) == [
+        "sys.yaml",
+        "user_am.yaml",
+    ]
+    assert parse_process_args('["sys.yaml", "user_pm.yaml"]') == [
+        "sys.yaml",
+        "user_pm.yaml",
+    ]
+    assert parse_process_args("['sys.yaml', 'task_col1.yaml']") == [
+        "sys.yaml",
+        "task_col1.yaml",
+    ]
+    assert parse_process_args("--config task_col_service_ops.yaml") == [
+        "--config",
+        "task_col_service_ops.yaml",
+    ]
+
+
+def test_parse_process_args_handles_empty_and_bad_quoted_text_safely():
+    assert parse_process_args(None) == []
+    assert parse_process_args("") == []
+    assert parse_process_args("'unterminated") == ["'unterminated"]
 
 
 def test_parse_update_time_supports_known_formats():

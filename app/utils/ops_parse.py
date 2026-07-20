@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import ast
 import json
+import shlex
 from datetime import datetime, time, timedelta
 from typing import Any
 
@@ -27,6 +28,38 @@ def parse_dat(dat: str | None) -> dict:
             return {}
 
     return parsed if isinstance(parsed, dict) else {}
+
+
+def parse_process_args(value: Any) -> list[str]:
+    """Safely normalize process arguments from a list or serialized text."""
+    if value is None:
+        return []
+
+    if isinstance(value, (list, tuple)):
+        return [str(item) for item in value]
+
+    text = str(value).strip()
+    if not text:
+        return []
+
+    parsed = None
+    try:
+        parsed = json.loads(text)
+    except (TypeError, ValueError):
+        try:
+            parsed = ast.literal_eval(text)
+        except (SyntaxError, ValueError, TypeError):
+            pass
+
+    if isinstance(parsed, (list, tuple)):
+        return [str(item) for item in parsed]
+    if isinstance(parsed, str):
+        text = parsed
+
+    try:
+        return shlex.split(text)
+    except ValueError:
+        return [text]
 
 
 def parse_update_time(value: str | None) -> datetime | None:
