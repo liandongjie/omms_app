@@ -28,7 +28,13 @@
         </a-tag>
       </template>
       <template v-else-if="column.key === 'args'">
-        <span class="ellipsis-cell" :title="formatValue(record.args)">{{ formatValue(record.args) }}</span>
+        <div v-if="hasArgs(record)" class="process-args-cell">
+          <span class="process-args-cell__text">{{ getArgsText(record) }}</span>
+          <a-button class="process-args-cell__copy" type="link" size="small" @click="copyArgs(record)">
+            复制
+          </a-button>
+        </div>
+        <span v-else class="empty-value">-</span>
       </template>
       <template v-else-if="column.key === 'pid'">
         <span :class="valueClass(formatValue(record.pid))">{{ formatValue(record.pid) }}</span>
@@ -196,6 +202,52 @@ function hasValue(value: unknown) {
 }
 
 /**
+ * 判断进程启动参数是否包含可展示、可复制的内容。
+ *
+ * @param row 进程监控行。
+ * @returns 参数包含非空字符时返回 true。
+ */
+function hasArgs(row: MonitorRow) {
+  // 纯空白参数按空值展示，避免为无意义内容提供复制入口。
+  return Boolean(row.args?.trim());
+}
+
+/**
+ * 读取表格中直接展示的完整启动参数。
+ *
+ * @param row 进程监控行。
+ * @returns 原始参数文本或占位符。
+ */
+function getArgsText(row: MonitorRow) {
+  return hasArgs(row) ? row.args! : '-';
+}
+
+/**
+ * 把进程启动参数的原始值写入剪贴板并反馈结果。
+ *
+ * @param row 要复制参数的进程监控行。
+ * @returns 剪贴板操作完成后的 Promise。
+ */
+async function copyArgs(row: MonitorRow) {
+  // 表格始终展示完整 args；复制时直接使用接口原始值，避免复制到未来可能格式化的展示文本。
+  const text = row.args;
+  if (!text?.trim()) return;
+
+  // 浏览器不支持剪贴板 API 或写入被拒绝时，明确提示用户手动复制。
+  if (!navigator.clipboard?.writeText) {
+    message.error('复制失败，请手动复制');
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(text);
+    message.success('已复制 args');
+  } catch {
+    message.error('复制失败，请手动复制');
+  }
+}
+
+/**
  * 识别已配置但尚无运行指标的进程行。
  *
  * @param row 进程监控行。
@@ -358,6 +410,27 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   text-overflow: ellipsis;
   vertical-align: bottom;
   white-space: nowrap;
+}
+
+.process-args-cell {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 4px;
+  width: 100%;
+}
+
+.process-args-cell__text {
+  flex: 1 1 160px;
+  min-width: 0;
+  /* 在固定列宽内折行长参数，防止内容撑开或覆盖相邻列。 */
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.process-args-cell__copy {
+  flex: none;
 }
 
 .rt-metric-cell {
