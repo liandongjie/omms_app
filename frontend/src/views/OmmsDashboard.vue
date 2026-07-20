@@ -53,7 +53,7 @@
       </section>
 
       <section :ref="setSectionRef('os')" class="scroll-section">
-        <SectionCard title="OS 状态" description="机器资源使用率与在线状态">
+        <SectionCard title="OS 状态">
           <template #extra>
             <a-space class="section-filter" :size="8">
               <span class="only-error-label">仅异常</span>
@@ -66,7 +66,7 @@
       </section>
 
       <section :ref="setSectionRef('process')" class="scroll-section">
-        <SectionCard title="进程状态" description="关键进程资源占用与运行状态">
+        <SectionCard title="进程状态">
           <template #extra>
             <a-space class="section-filter" :size="8">
               <span class="only-error-label">仅异常</span>
@@ -118,7 +118,7 @@
       </section>
 
       <section :ref="setSectionRef('logs')" class="scroll-section">
-        <SectionCard title="最近日志" description="来自最近日志接口的当天日志记录">
+        <SectionCard title="最近日志">
           <template #extra>
             <a-space class="section-filter" :size="8">
               <a-input-search
