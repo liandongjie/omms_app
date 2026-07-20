@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
+import logging
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+import app.services.ops_service as ops_service_module
 from app.models.database import Base
 from app.models.ops_model import OpsCfg, OpsLog, OpsState
 from app.schemas.ops_schema import LogPageResponse, OverviewLogStats
@@ -79,8 +82,46 @@ class FakeOpsService(OpsService):
         return OverviewLogStats()
 
 
+@pytest.fixture
+def clear_process_warning_cache():
+    with ops_service_module._PROCESS_WARNING_LOCK:
+        ops_service_module._PROCESS_WARNING_KEYS.clear()
+    yield
+    with ops_service_module._PROCESS_WARNING_LOCK:
+        ops_service_module._PROCESS_WARNING_KEYS.clear()
+
+
 def stale_time(now=FIXED_NOW, minutes=5):
     return fmt_time(now - timedelta(minutes=minutes))
+
+
+def process_session_state(
+    session,
+    pid,
+    now,
+    *,
+    machine_tag="machine1",
+    suffix=None,
+    update_time=None,
+):
+    suffix = suffix or str(pid)
+    return state(
+        state_type="process",
+        machine_tag=machine_tag,
+        state_key="./bin/tlBinFutLite",
+        value=repr(
+            ["sys_session.yaml", f"user_session_{suffix}_{session}.yaml"]
+        ),
+        dat=repr(
+            {
+                "pid": pid,
+                "cpu": pid / 1000,
+                "mem": pid + 100,
+                "algo001": f"metric-{pid}",
+            }
+        ),
+        update_time=update_time or fmt_time(now - timedelta(minutes=1)),
+    )
 
 
 def test_os_normal():
@@ -533,7 +574,7 @@ def test_process_state_matches_by_type_key_and_value_containment():
         dat="{'pid': 1}",
     )
 
-    assert OpsService._find_process_state(process_cfg, [non_matching_type]) is None
+    assert OpsService._find_process_state_candidates(process_cfg, [non_matching_type]) == []
     item = FakeOpsService([process_cfg], [non_matching_value, matching_state]).get_process_states(date="20260625")[0]
 
     assert item.status == "normal"
@@ -553,6 +594,582 @@ def test_process_empty_cfg_value_does_not_filter_by_state_value():
 
     assert item.status == "normal"
     assert item.pid == 103833
+
+
+@pytest.mark.parametrize(
+    ("now", "expected_pid"),
+    [
+        (datetime(2026, 6, 25, 10, 0, 0), 101),
+        (datetime(2026, 6, 25, 21, 0, 0), 202),
+    ],
+)
+def test_process_selects_current_session_and_hides_other_session(now, expected_pid):
+    process_cfg = cfg(
+        cfg_type="process",
+        cfg_key="tlBinFutLite",
+        value="sys_session.yaml",
+    )
+    am_state = process_session_state("am", 101, now)
+    pm_state = process_session_state("pm", 202, now)
+
+    items = FakeOpsService(
+        [process_cfg], [pm_state, am_state], now=now
+    ).get_process_states(date="20260625", include_state_only=True)
+
+    assert len(items) == 1
+    item = items[0]
+    assert item.pid == expected_pid
+    assert item.cpu == expected_pid / 1000
+    assert item.memory == expected_pid + 100
+    assert item.update_time == fmt_time(now - timedelta(minutes=1))
+    assert item.extra == {"algo001": f"metric-{expected_pid}"}
+    assert item.args == (am_state.value if expected_pid == 101 else pm_state.value)
+    assert item.is_configured is True
+
+
+@pytest.mark.parametrize(
+    ("now", "expected_pid"),
+    [
+        (datetime(2026, 6, 25, 8, 0, 0), 101),
+        (datetime(2026, 6, 25, 17, 59, 59), 101),
+        (datetime(2026, 6, 25, 18, 0, 0), 202),
+        (datetime(2026, 6, 25, 7, 59, 59), 202),
+    ],
+)
+def test_process_session_time_boundaries(now, expected_pid):
+    process_cfg = cfg(
+        cfg_type="process",
+        cfg_key="tlBinFutLite",
+        value="sys_session.yaml",
+    )
+    states = [
+        process_session_state("am", 101, now),
+        process_session_state("pm", 202, now),
+    ]
+
+    item = FakeOpsService([process_cfg], states, now=now).get_process_states(
+        date="20260625"
+    )[0]
+
+    assert item.pid == expected_pid
+
+
+def test_process_session_suffix_is_case_insensitive():
+    now = datetime(2026, 6, 25, 21, 0, 0)
+    process_cfg = cfg(
+        cfg_type="process",
+        cfg_key="tlBinFutLite",
+        value="sys_session.yaml",
+    )
+    row = state(
+        state_type="process",
+        state_key="./bin/tlBinFutLite",
+        value=repr(["sys_session.yaml", "USER_X_AM.YAML"]),
+        dat="{'pid': 101}",
+        update_time=fmt_time(now - timedelta(minutes=1)),
+    )
+
+    item = FakeOpsService([process_cfg], [row], now=now).get_process_states(
+        date="20260625"
+    )[0]
+
+    assert item.pid is None
+    assert item.status == "offline"
+
+
+def test_process_session_classification_requires_strict_yaml_suffix():
+    now = datetime(2026, 6, 25, 21, 0, 0)
+    process_cfg = cfg(
+        cfg_type="process",
+        cfg_key="tlBinFutLite",
+        value="sys_session.yaml",
+    )
+    states = [
+        state(
+            state_type="process",
+            state_key="./bin/tlBinFutLite",
+            value=repr(["sys_session.yaml", "foo_am.yaml.bak"]),
+            dat="{'pid': 101}",
+            update_time=fmt_time(now - timedelta(minutes=2)),
+        ),
+        state(
+            state_type="process",
+            state_key="./bin/tlBinFutLite",
+            value=repr(["sys_session.yaml", "program-amazing.yaml"]),
+            dat="{'pid': 202}",
+            update_time=fmt_time(now - timedelta(minutes=1)),
+        ),
+    ]
+
+    item = FakeOpsService([process_cfg], states, now=now).get_process_states(
+        date="20260625"
+    )[0]
+
+    assert item.pid == 202
+
+
+@pytest.mark.parametrize(
+    ("now", "session", "expected_pid"),
+    [
+        (datetime(2026, 6, 25, 10, 0, 0), "am", 101),
+        (datetime(2026, 6, 25, 21, 0, 0), "pm", 202),
+    ],
+)
+def test_process_selects_available_target_session(now, session, expected_pid):
+    process_cfg = cfg(
+        cfg_type="process",
+        cfg_key="tlBinFutLite",
+        value="sys_session.yaml",
+    )
+    item = FakeOpsService(
+        [process_cfg],
+        [process_session_state(session, expected_pid, now)],
+        now=now,
+    ).get_process_states(date="20260625")[0]
+
+    assert item.pid == expected_pid
+    assert item.status == "normal"
+
+
+@pytest.mark.parametrize(
+    ("now", "available_session", "work_time", "expected_status"),
+    [
+        (datetime(2026, 6, 25, 10, 0, 0), "pm", None, "offline"),
+        (datetime(2026, 6, 25, 21, 0, 0), "am", None, "offline"),
+        (
+            datetime(2026, 6, 25, 10, 0, 0),
+            "pm",
+            "18:00:00-23:00:00",
+            "normal",
+        ),
+        (
+            datetime(2026, 6, 25, 21, 0, 0),
+            "am",
+            "08:00:00-18:00:00",
+            "normal",
+        ),
+    ],
+)
+def test_process_missing_target_session_never_falls_back_or_becomes_state_only(
+    now, available_session, work_time, expected_status
+):
+    process_cfg = cfg(
+        cfg_type="process",
+        cfg_key="tlBinFutLite",
+        value="sys_session.yaml",
+        work_time=work_time,
+    )
+    items = FakeOpsService(
+        [process_cfg],
+        [process_session_state(available_session, 303, now)],
+        now=now,
+    ).get_process_states(date="20260625", include_state_only=True)
+
+    assert len(items) == 1
+    assert items[0].status == expected_status
+    assert items[0].pid is None
+    assert items[0].is_configured is True
+
+
+@pytest.mark.parametrize(
+    ("session", "now"),
+    [
+        ("am", datetime(2026, 6, 25, 10, 0, 0)),
+        ("pm", datetime(2026, 6, 25, 21, 0, 0)),
+    ],
+)
+def test_process_selects_latest_state_within_target_session(session, now):
+    process_cfg = cfg(
+        cfg_type="process",
+        cfg_key="tlBinFutLite",
+        value="sys_session.yaml",
+    )
+    older = process_session_state(
+        session,
+        101,
+        now,
+        suffix="older",
+        update_time=fmt_time(now - timedelta(minutes=2)),
+    )
+    newer = process_session_state(
+        session,
+        202,
+        now,
+        suffix="newer",
+        update_time=fmt_time(now - timedelta(minutes=1)),
+    )
+
+    item = FakeOpsService(
+        [process_cfg], [newer, older], now=now
+    ).get_process_states(date="20260625")[0]
+
+    assert item.pid == 202
+
+
+@pytest.mark.parametrize("filename", ["task_col1.yaml", "task_col_service_ops.yaml"])
+def test_process_generic_yaml_does_not_enter_session_mode(filename):
+    now = datetime(2026, 6, 25, 10, 0, 0)
+    process_cfg = cfg(
+        cfg_type="process",
+        cfg_key="tlBinFutLite",
+        value="sys_session.yaml",
+    )
+    older = state(
+        state_type="process",
+        state_key="./bin/tlBinFutLite",
+        value=repr(["sys_session.yaml", filename, "older"]),
+        dat="{'pid': 101}",
+        update_time=fmt_time(now - timedelta(minutes=2)),
+    )
+    newer = state(
+        state_type="process",
+        state_key="./bin/tlBinFutLite",
+        value=repr(["sys_session.yaml", filename, "newer"]),
+        dat="{'pid': 202}",
+        update_time=fmt_time(now - timedelta(minutes=1)),
+    )
+
+    items = FakeOpsService(
+        [process_cfg], [newer, older], now=now
+    ).get_process_states(date="20260625", include_state_only=True)
+
+    assert len(items) == 1
+    assert items[0].pid == 202
+    assert items[0].is_configured is True
+
+
+def test_process_invalid_update_times_use_stable_identity_not_input_order():
+    now = datetime(2026, 6, 25, 10, 0, 0)
+    process_cfg = cfg(
+        cfg_type="process",
+        cfg_key="tlBinFutLite",
+        value="sys_session.yaml",
+    )
+    state_a = process_session_state(
+        "am", 999, now, suffix="a", update_time="bad"
+    )
+    state_z = process_session_state(
+        "am", 1, now, suffix="z", update_time=None
+    )
+
+    forward = FakeOpsService(
+        [process_cfg], [state_a, state_z], now=now
+    ).get_process_states(date="20260625")[0]
+    reverse = FakeOpsService(
+        [process_cfg], [state_z, state_a], now=now
+    ).get_process_states(date="20260625")[0]
+
+    assert forward.pid == reverse.pid == 1
+
+
+def test_process_valid_update_time_wins_over_empty_or_invalid_values():
+    now = datetime(2026, 6, 25, 10, 0, 0)
+    process_cfg = cfg(
+        cfg_type="process",
+        cfg_key="tlBinFutLite",
+        value="sys_session.yaml",
+    )
+    states = [
+        state(
+            state_type="process",
+            state_key="./bin/tlBinFutLite",
+            value=repr(["sys_session.yaml", "task_col1.yaml", "valid"]),
+            dat="{'pid': 101}",
+            update_time=fmt_time(now - timedelta(minutes=2)),
+        ),
+        state(
+            state_type="process",
+            state_key="./bin/tlBinFutLite",
+            value=repr(["sys_session.yaml", "task_col1.yaml", "invalid"]),
+            dat="{'pid': 202}",
+            update_time="bad",
+        ),
+        state(
+            state_type="process",
+            state_key="./bin/tlBinFutLite",
+            value=repr(["sys_session.yaml", "task_col1.yaml", "empty"]),
+            dat="{'pid': 303}",
+            update_time=None,
+        ),
+    ]
+
+    item = FakeOpsService([process_cfg], states, now=now).get_process_states(
+        date="20260625"
+    )[0]
+
+    assert item.pid == 101
+
+
+def test_process_equal_update_time_uses_identity_and_never_dat_metrics():
+    now = datetime(2026, 6, 25, 10, 0, 0)
+    update_time = fmt_time(now - timedelta(minutes=1))
+    process_cfg = cfg(
+        cfg_type="process",
+        cfg_key="tlBinFutLite",
+        value="sys_session.yaml",
+    )
+    state_a = process_session_state(
+        "am", 999, now, suffix="a", update_time=update_time
+    )
+    state_z = process_session_state(
+        "am", 1, now, suffix="z", update_time=update_time
+    )
+
+    item = FakeOpsService(
+        [process_cfg], [state_z, state_a], now=now
+    ).get_process_states(date="20260625")[0]
+
+    assert item.pid == 1
+
+
+def test_process_fully_equal_selection_keys_are_safe_without_dat_tie_breaker():
+    now = datetime(2026, 6, 25, 10, 0, 0)
+    process_cfg = cfg(
+        cfg_type="process",
+        cfg_key="tlBinFutLite",
+        value="sys_session.yaml",
+    )
+    first = process_session_state("am", 101, now, suffix="same")
+    second = process_session_state("am", 202, now, suffix="same")
+
+    item = FakeOpsService(
+        [process_cfg], [first, second], now=now
+    ).get_process_states(date="20260625")[0]
+
+    assert item.pid in {101, 202}
+
+
+def test_process_session_and_generic_warning_is_deduplicated_per_anomaly(
+    clear_process_warning_cache, caplog
+):
+    now = datetime(2026, 6, 25, 10, 0, 0)
+    cfgs = []
+    states = []
+    for machine_tag in ("machine1", "machine2"):
+        cfgs.append(
+            cfg(
+                cfg_type="process",
+                machine_tag=machine_tag,
+                cfg_key="tlBinFutLite",
+                value="sys_session.yaml",
+            )
+        )
+        states.extend(
+            [
+                process_session_state("am", 101, now, machine_tag=machine_tag),
+                state(
+                    state_type="process",
+                    machine_tag=machine_tag,
+                    state_key="./bin/tlBinFutLite",
+                    value=repr(["sys_session.yaml", "task_col_service_ops.yaml"]),
+                    dat="{'pname': 'genericProc', 'pid': 202}",
+                    update_time=fmt_time(now - timedelta(minutes=1)),
+                ),
+            ]
+        )
+    service = FakeOpsService(cfgs, states, now=now)
+
+    with caplog.at_level(logging.WARNING, logger="app.services.ops_service"):
+        items = service.get_process_states(date="20260625", include_state_only=True)
+        service.get_process_states(date="20260625", include_state_only=True)
+
+    warnings = [
+        record for record in caplog.records if "session and generic" in record.message
+    ]
+    assert len(warnings) == 2
+    assert len(items) == 4
+    assert sum(item.is_configured is False for item in items) == 2
+
+
+def test_process_ambiguous_session_warning_is_deduplicated_and_state_is_matched(
+    clear_process_warning_cache, caplog
+):
+    now = datetime(2026, 6, 25, 10, 0, 0)
+    cfgs = []
+    states = []
+    for machine_tag in ("machine1", "machine2"):
+        cfgs.append(
+            cfg(
+                cfg_type="process",
+                machine_tag=machine_tag,
+                cfg_key="tlBinFutLite",
+                value="sys_session.yaml",
+            )
+        )
+        states.append(
+            state(
+                state_type="process",
+                machine_tag=machine_tag,
+                state_key="./bin/tlBinFutLite",
+                value=repr(
+                    [
+                        "sys_session.yaml",
+                        "user_session_am.yaml",
+                        "user_session_pm.yaml",
+                    ]
+                ),
+                dat="{'pid': 303}",
+                update_time=fmt_time(now - timedelta(minutes=1)),
+            )
+        )
+    service = FakeOpsService(cfgs, states, now=now)
+
+    with caplog.at_level(logging.WARNING, logger="app.services.ops_service"):
+        items = service.get_process_states(date="20260625", include_state_only=True)
+        service.get_process_states(date="20260625", include_state_only=True)
+
+    warnings = [
+        record for record in caplog.records if "both AM and PM" in record.message
+    ]
+    assert len(warnings) == 2
+    assert len(items) == 2
+    assert all(item.is_configured is True for item in items)
+    assert all(item.status == "offline" for item in items)
+    assert all(item.pid is None for item in items)
+
+
+def test_process_args_mismatch_warns_once_per_distinct_state_without_changing_selection(
+    clear_process_warning_cache, caplog
+):
+    now = datetime(2026, 6, 25, 10, 0, 0)
+    cfgs = []
+    states = []
+    for index, machine_tag in enumerate(("machine1", "machine2"), start=1):
+        state_value = ["sys_session.yaml", f"user_{index}_am.yaml"]
+        cfgs.append(
+            cfg(
+                cfg_type="process",
+                machine_tag=machine_tag,
+                cfg_key="tlBinFutLite",
+                value="sys_session.yaml",
+            )
+        )
+        states.append(
+            state(
+                state_type="process",
+                machine_tag=machine_tag,
+                state_key="./bin/tlBinFutLite",
+                value=repr(state_value),
+                dat=repr(
+                    {
+                        "pid": index,
+                        "args": ["sys_session.yaml", f"old_{index}_pm.yaml"],
+                    }
+                ),
+                update_time=fmt_time(now - timedelta(minutes=1)),
+            )
+        )
+    service = FakeOpsService(cfgs, states, now=now)
+
+    with caplog.at_level(logging.WARNING, logger="app.services.ops_service"):
+        items = service.get_process_states(date="20260625")
+        service.get_process_states(date="20260625")
+
+    warnings = [
+        record for record in caplog.records if "args mismatch" in record.message
+    ]
+    assert len(warnings) == 2
+    assert [item.pid for item in items] == [1, 2]
+    assert all(item.status == "normal" for item in items)
+
+
+def test_process_matching_state_and_dat_args_do_not_warn(
+    clear_process_warning_cache, caplog
+):
+    now = datetime(2026, 6, 25, 10, 0, 0)
+    state_value = ["sys_session.yaml", "user_session_am.yaml"]
+    process_cfg = cfg(
+        cfg_type="process",
+        cfg_key="tlBinFutLite",
+        value="sys_session.yaml",
+    )
+    row = state(
+        state_type="process",
+        state_key="./bin/tlBinFutLite",
+        value=repr(state_value),
+        dat=repr({"pid": 101, "args": state_value}),
+        update_time=fmt_time(now - timedelta(minutes=1)),
+    )
+
+    with caplog.at_level(logging.WARNING, logger="app.services.ops_service"):
+        item = FakeOpsService([process_cfg], [row], now=now).get_process_states(
+            date="20260625"
+        )[0]
+
+    assert item.pid == 101
+    assert not [record for record in caplog.records if "args mismatch" in record.message]
+
+
+@pytest.mark.parametrize(
+    "dat",
+    [
+        "{'pid': 101}",
+        "{'pid': 101, 'args': 'not-a-list'}",
+        "{broken",
+    ],
+)
+def test_process_missing_invalid_or_unparseable_dat_args_never_break_matching(dat):
+    now = datetime(2026, 6, 25, 10, 0, 0)
+    process_cfg = cfg(
+        cfg_type="process",
+        cfg_key="tlBinFutLite",
+        value="sys_session.yaml",
+    )
+    row = state(
+        state_type="process",
+        state_key="./bin/tlBinFutLite",
+        value=repr(["sys_session.yaml", "user_session_am.yaml"]),
+        dat=dat,
+        update_time=fmt_time(now - timedelta(minutes=1)),
+    )
+
+    item = FakeOpsService([process_cfg], [row], now=now).get_process_states(
+        date="20260625"
+    )[0]
+
+    assert item.is_configured is True
+
+
+def test_process_warning_cache_is_bounded(clear_process_warning_cache):
+    for index in range(ops_service_module.PROCESS_WARNING_CACHE_MAXSIZE + 1):
+        assert ops_service_module._should_log_process_warning(("test", index))
+
+    assert (
+        len(ops_service_module._PROCESS_WARNING_KEYS)
+        == ops_service_module.PROCESS_WARNING_CACHE_MAXSIZE
+    )
+
+
+def test_process_warning_logs_outside_lock_and_redacts_secrets(
+    clear_process_warning_cache, monkeypatch
+):
+    now = datetime(2026, 6, 25, 10, 0, 0)
+    process_cfg = cfg(
+        cfg_type="process",
+        cfg_key="tlBinFutLite",
+        value="sys_session.yaml",
+    )
+    row = state(
+        state_type="process",
+        state_key="./bin/tlBinFutLite",
+        value=repr(["sys_session.yaml", "user_session_am.yaml"]),
+        dat=repr({"pid": 101, "args": ["--password", "top-secret"]}),
+        update_time=fmt_time(now - timedelta(minutes=1)),
+    )
+    calls = []
+
+    def fake_warning(message, *args):
+        assert not ops_service_module._PROCESS_WARNING_LOCK.locked()
+        calls.append((message, args))
+
+    monkeypatch.setattr(ops_service_module.logger, "warning", fake_warning)
+
+    FakeOpsService([process_cfg], [row], now=now).get_process_states(
+        date="20260625"
+    )
+
+    assert len(calls) == 1
+    assert "top-secret" not in repr(calls)
 
 
 def test_process_state_only_is_excluded_by_default_and_added_for_all_group():
