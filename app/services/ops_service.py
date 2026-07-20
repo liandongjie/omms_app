@@ -571,6 +571,12 @@ class OpsService(BaseService):
         now = self._now()
         monitoring_now = is_in_work_time(cfg.work_time, now=now)
 
+        # 有实际上报时优先使用 state.value；未匹配到 state 时回退到 cfg.value 帮助定位配置。
+        # cfg.value 不代表实际运行参数，不补全或推测其他参数；空值规范化后保持 None。
+        args = self._normalize_process_args(
+            state.value if state is not None else cfg.value
+        )
+
         # 与 OS 一致，配置项只在工作时间内因缺少对应状态被判为离线。
         if state is None:
             status = "offline" if monitoring_now else "normal"
@@ -583,6 +589,7 @@ class OpsService(BaseService):
                 machine_tag=cfg.machine_tag,
                 group=cfg.group_name,
                 process_name=cfg.cfg_key,
+                args=args,
                 is_configured=True,
                 status=status,
                 message=message,
@@ -602,8 +609,6 @@ class OpsService(BaseService):
         else:
             status = "normal"
             message = "normal"
-
-        args = self._normalize_process_args(state.value)
 
         return ProcessStateItem(
             machine_tag=cfg.machine_tag,

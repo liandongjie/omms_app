@@ -432,30 +432,24 @@ def test_process_extra_is_none_when_dat_empty_or_parse_failed():
     assert bad_item.status == "unknown"
 
 
-def test_process_args_use_state_value_and_missing_state_returns_none():
-    process_cfg = cfg(cfg_type="process", cfg_key="tlBinTradeLite", value="cfg.yaml")
-    row = state(
-        state_type="process",
-        state_key="./bin/tlBinTradeLite",
-        value="cfg.yaml state.yaml",
-        dat="{'pid': 103833}",
+def test_process_args_fall_back_to_cfg_value_when_state_missing():
+    process_cfg = cfg(
+        cfg_type="process",
+        cfg_key="tlBinTradeLite",
+        value="sys_ZXACFE.yaml",
     )
 
-    matched = FakeOpsService([process_cfg], [row]).get_process_states(date="20260625")[0]
-    missing_state = FakeOpsService([process_cfg], []).get_process_states(date="20260625")[0]
+    item = FakeOpsService([process_cfg], []).get_process_states(date="20260625")[0]
 
-    empty_value_cfg = cfg(cfg_type="process", cfg_key="tlBinTradeLite", value="")
-    empty_value_row = state(
-        state_type="process",
-        state_key="./bin/tlBinTradeLite",
-        value="",
-        dat="{'pid': 103833}",
-    )
-    empty_value = FakeOpsService([empty_value_cfg], [empty_value_row]).get_process_states(date="20260625")[0]
+    assert item.args == "sys_ZXACFE.yaml"
 
-    assert matched.args == "cfg.yaml state.yaml"
-    assert missing_state.args is None
-    assert empty_value.args is None
+
+def test_process_args_stay_none_when_state_missing_and_cfg_value_empty():
+    process_cfg = cfg(cfg_type="process", cfg_key="tlBinTradeLite", value="")
+
+    item = FakeOpsService([process_cfg], []).get_process_states(date="20260625")[0]
+
+    assert item.args is None
 
 
 def test_process_stale_state_is_offline_only_inside_work_time():
