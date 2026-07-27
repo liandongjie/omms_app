@@ -1,91 +1,257 @@
-# omms app
+# OMMS 运维监控系统
 
-omms app 运维管理后端应用
+OMMS 是一个面向内部运维场景的前后端一体化监控系统，当前主要提供：
 
-## 项目结构
+- 监控总览；
+- OS 资源与在线状态；
+- 关键进程状态；
+- 最近日志查询；
+- 按配置分组筛选。
 
-项目采用分层架构设计，主要包含以下几个部分：
-
-- `app/`: 核心应用代码
-  - `app/models/`: SQLAlchemy 数据库模型
-  - `app/schemas/`: Pydantic 数据模型（用于请求和响应验证）
-  - `app/services/`: 业务逻辑层
-  - `app/controllers/`: 控制器层，处理请求逻辑
-  - `app/routes/`: API 路由定义
-  - `app/utils/`: 工具函数（数据库连接、安全验证等）
-  - `app/config/`: 配置管理
-  - `app/main.py`: FastAPI 应用入口
-- `main.py`: 项目启动脚本
-- `requirements.txt`: Python 依赖配置文件
-- `.env.development.example`: 开发环境配置文件
-- `.env.production.example`: 生产环境配置文件
-- `.env.testing.example`: 测试环境配置文件
-- `tests/`: 测试脚本和工具
-- `test_db.py`: 数据库表创建测试脚本
+后端从 MySQL 中读取 `ops_cfg`、`ops_state`、`ops_log`，计算监控状态并通过 `/api_omms` 接口提供给前端；前端默认每 5 秒刷新一次监控数据。
 
 ## 技术栈
 
+### 后端
+
 - Python 3.11+
-- FastAPI (Web 框架)
-- SQLAlchemy (ORM 数据库访问)
-- Pydantic (数据验证)
-- Uvicorn (ASGI 服务器)
-- PyMySQL (MySQL 数据库驱动)
-- python-jose (JWT 令牌处理)
-- passlib (密码哈希)
+- FastAPI
+- SQLAlchemy
+- Pydantic
+- PyMySQL / MySQL
+- Uvicorn
+- pytest
 
-## 安装指南
+### 前端
 
-### 1. 克隆项目
+- Vue 3
+- TypeScript
+- Vite
+- Ant Design Vue
+- Axios
+
+## 项目结构
+
+```text
+omms_app/
+├─ app/
+│  ├─ config/          # 环境配置、监控阈值和分页配置
+│  ├─ controllers/     # 请求参数适配、返回字段转换、排序和分页
+│  ├─ models/          # SQLAlchemy 数据库模型
+│  ├─ routes/          # FastAPI 路由
+│  ├─ schemas/         # Pydantic 请求、响应和领域模型
+│  ├─ services/        # 核心业务逻辑
+│  ├─ utils/           # 数据库、时间和字段解析工具
+│  └─ main.py          # FastAPI 应用入口
+├─ frontend/
+│  ├─ src/             # Vue 页面、API 和组件
+│  ├─ package.json     # 前端命令和依赖
+│  └─ vite.config.ts   # 开发服务器及 API 代理
+├─ docs/
+│  └─ api_omms_monitor_overview.md
+├─ tests/
+│  ├─ test_monitor_overview_compat.py
+│  ├─ test_ops_parse.py
+│  └─ test_ops_service.py
+├─ main.py             # 后端启动脚本
+├─ requirements.txt
+├─ pytest.ini
+└─ .env.*.example      # 环境变量示例
+```
+
+## 核心数据表
+
+| 表 | 作用 |
+|---|---|
+| `ops_cfg` | 启用的监控配置、分组和工作时间 |
+| `ops_state` | 按日期、类型和机器保存的最新状态 |
+| `ops_log` | 追加保存的日志记录 |
+
+数据库没有通过外键维护三张表的关系，关联和状态判断由 `app/services/ops_service.py` 完成。
+
+## 后端本地开发
+
+以下命令以 Windows PowerShell 和项目路径 `D:\omms_app` 为例。
+
+### 1. 进入项目目录
+
+```powershell
+cd D:\omms_app
+```
 
 ### 2. 创建虚拟环境
 
-```bash
+```powershell
 python -m venv .venv
-# Windows 激活
-.venv\Scripts\activate
-# Linux/Mac 激活
-source .venv/bin/activate
 ```
+
+可以激活虚拟环境：
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+也可以不激活，后续直接调用虚拟环境中的 Python。
 
 ### 3. 安装依赖
 
-安装所有项目依赖：
-
-```bash
-pip install -r requirements.txt
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-### 4. 配置环境变量
+### 4. 配置开发环境
 
-项目已包含三个环境的配置文件，请根据需要修改相应配置：
+复制示例文件：
 
-- `.env.development`: 开发环境配置
-- `.env.testing`: 测试环境配置
-- `.env.production`: 生产环境配置
-
-主要配置项包括数据库连接信息、JWT 密钥等。
-
-## 运行项目
-
-### 开发环境
-
-```bash
-python main.py
+```powershell
+Copy-Item .env.development.example .env.development
 ```
 
-这将以开发模式启动服务器（启用自动重载）。
+然后填写实际数据库配置：
 
-### 直接使用 Uvicorn
+```dotenv
+ENVIRONMENT=development
+HOST=0.0.0.0
+PORT=8004
 
-```bash
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_NAME=omms_app
+DB_USER=root
+DB_PASSWORD=your_password
 ```
 
-## API 文档
+不要把真实密码提交到 Git。
 
-项目启动后，可以访问以下地址查看自动生成的 API 文档：
+### 5. 启动后端
 
-- Swagger UI: http://localhost:8004/docs
-- ReDoc: http://localhost:8004/redoc
+推荐使用：
 
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8004
+```
+
+开发时需要自动重载，可以追加：
+
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8004
+```
+
+也可以运行根目录启动脚本：
+
+```powershell
+.\.venv\Scripts\python.exe main.py
+```
+
+启动后可访问：
+
+- Swagger UI：`http://127.0.0.1:8004/docs`
+- ReDoc：`http://127.0.0.1:8004/redoc`
+
+## 前端本地开发
+
+另开一个 PowerShell 窗口：
+
+```powershell
+cd D:\omms_app\frontend
+```
+
+首次安装依赖：
+
+```powershell
+npm ci
+```
+
+启动前端：
+
+```powershell
+npm run dev -- --host 0.0.0.0 --port 5173
+```
+
+当前 Vite 开发服务器会把 `/api_omms` 代理到：
+
+```text
+http://127.0.0.1:8004
+```
+
+因此本地联调时，后端需要在同一台电脑的 `8004` 端口运行。
+
+## 局域网访问
+
+后端和前端都使用：
+
+```text
+--host 0.0.0.0
+```
+
+表示监听本机所有网络接口，允许局域网中的其他电脑访问。
+
+如果只监听：
+
+```text
+127.0.0.1
+```
+
+则只有本机可以访问。
+
+Vite 启动后通常会显示：
+
+```text
+Local:   http://localhost:5173/
+Network: http://192.168.1.23:5173/
+```
+
+将实际显示的 `Network` 地址发给局域网内的访问者，例如：
+
+```text
+http://192.168.1.23:5173/
+```
+
+如无法访问，请检查：
+
+- 两台电脑是否位于可互通的局域网；
+- Windows 防火墙是否允许 Python、Node.js 或对应端口；
+- `5173` 和 `8004` 端口是否被其他进程占用；
+- 前端所在电脑是否能够访问本机后端 `127.0.0.1:8004`。
+
+## 测试与构建
+
+### 后端测试
+
+在项目根目录执行：
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+### 前端类型检查和生产构建
+
+```powershell
+cd frontend
+npm run build
+```
+
+当前 `build` 命令会依次执行 TypeScript 类型检查和 Vite 生产构建。
+
+## 当前接口
+
+当前正式注册的监控接口为：
+
+```text
+GET  /api_omms/monitor/overview/total
+GET  /api_omms/monitor/group/list
+POST /api_omms/monitor/overview/os/list
+POST /api_omms/monitor/overview/process/list
+POST /api_omms/monitor/overview/log/list
+```
+
+详细请求参数、返回字段和统计口径见：
+
+- [`docs/api_omms_monitor_overview.md`](docs/api_omms_monitor_overview.md)
+
+## 开发注意事项
+
+- 当前 `app/main.py` 只注册 `/api_omms` 监控路由和测试路由；不要仅凭文件存在认定其他路由已经生效。
+- OS、进程的状态不是数据库直接存储的最终值，而是后端根据配置、上报时间和指标动态计算。
+- 修改监控统计、匹配或分页逻辑时，应同时检查 Service、Controller、Schema、前端展示和相关测试。
+- 不要提交 `.env.development`、数据库密码、令牌或其他真实凭据。
