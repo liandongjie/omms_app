@@ -132,6 +132,7 @@ class OpsService(BaseService):
             OverviewResponse: 概览响应对象，包含OS、进程、日志三大类统计信息
         """
         # 复用各明细查询的筛选和状态判定，保证总览计数与同条件下的明细口径一致。
+        # OS total 表示“配置项 + 当天 state-only 项”的可见 OS 总数。
         target_date = date or today_yyyymmdd()
         os_items = self.get_os_states(
             group=group, only_error=only_error, date=target_date
@@ -188,18 +189,51 @@ class OpsService(BaseService):
         """
         # 确定目标日期，默认使用当天
         target_date = date or today_yyyymmdd()
-        # 获取活动的 OS 监控配置
-        cfgs = self._get_active_cfgs("os", group)
+        # state-only OS 没有分组，只能在“全部”口径下补充。
+        is_all_group = self._is_all_group(group)
+        cfgs = self._get_active_cfgs("os", None if is_all_group else group)
+        # 配置项使用完整配置身份排序，保证后续同值排序也有稳定输入。
+        cfgs = sorted(
+            cfgs,
+            key=lambda cfg: tuple(
+                "" if value is None else str(value)
+                for value in (
+                    cfg.group_name,
+                    cfg.machine_tag,
+                    cfg.cfg_key,
+                    cfg.value,
+                    cfg.work_time,
+                )
+            ),
+        )
         # 获取指定日期的 OS 状态记录
         states = self._get_states("os", target_date)
-        # 将状态记录转换为字典，便于快速查找（key: (machine_tag, state_key)）
-        state_map = {(state.machine_tag, state.state_key): state for state in states}
+
+        # 同一 (machine_tag, key) 可能有多条候选，先稳定选取 update_time 最新的一条。
+        state_candidates = {}
+        for state in states:
+            state_candidates.setdefault((state.machine_tag, state.state_key), []).append(
+                state
+            )
+        state_map = {
+            key: self._select_latest_os_state(candidates)
+            for key, candidates in state_candidates.items()
+        }
 
         # 为每个配置匹配对应的状态，构建 OS 状态项列表
         items = [
             self._build_os_item(cfg, state_map.get((cfg.machine_tag, cfg.cfg_key)))
             for cfg in cfgs
         ]
+        configured_keys = {(cfg.machine_tag, cfg.cfg_key) for cfg in cfgs}
+        if is_all_group:
+            # 未被启用配置消费的当天 state 作为未配置 OS 展示；
+            # (machine_tag, key) 同时是配置/state 合并及去重键。
+            items.extend(
+                self._build_os_item(None, state_map[key])
+                for key in sorted(state_map)
+                if key not in configured_keys
+            )
         # 根据 only_error 参数过滤结果
         return self._filter_error_items(items, only_error)
 
@@ -539,9 +573,39 @@ class OpsService(BaseService):
             alarm_count=error_count + warn_count,
         )
 
-    def _build_os_item(self, cfg: OpsCfg, state: OpsState | None) -> OsStateItem:
+    @staticmethod
+    def _select_latest_os_state(states: Iterable[OpsState]) -> OpsState | None:
+        """Select the newest OS state with a deterministic identity tie-breaker."""
+
+        def sort_key(state: OpsState) -> tuple:
+            update_time = parse_update_time(state.update_time)
+            identity = tuple(
+                "" if value is None else str(value)
+                for value in (
+                    state.date,
+                    state.type,
+                    state.machine_tag,
+                    state.state_key,
+                    state.value,
+                )
+            )
+            return update_time is not None, update_time or datetime.min, identity
+
+        return max(states, key=sort_key, default=None)
+
+    def _build_os_item(
+        self, cfg: OpsCfg | None, state: OpsState | None
+    ) -> OsStateItem:
+        if cfg is None and state is None:
+            raise ValueError("OS config and state cannot both be empty")
+
         now = self._now()
-        monitoring_now = is_in_work_time(cfg.work_time, now=now)
+        is_configured = cfg is not None
+        # state-only 没有 work_time，因此始终检查上报时效；这只表示数据
+        # 是否新鲜，不代表已确认该机器在业务上应当运行。
+        monitoring_now = (
+            is_in_work_time(cfg.work_time, now=now) if cfg is not None else True
+        )
 
         # 工作时间内缺少上报才视为离线；工作时间外不因“无状态”产生离线告警。
         if state is None:
@@ -554,6 +618,7 @@ class OpsService(BaseService):
             return OsStateItem(
                 machine_tag=cfg.machine_tag,
                 group=cfg.group_name,
+                is_configured=True,
                 status=status,
                 message=message,
             )
@@ -611,8 +676,9 @@ class OpsService(BaseService):
             message = "normal"
 
         return OsStateItem(
-            machine_tag=cfg.machine_tag,
-            group=cfg.group_name,
+            machine_tag=cfg.machine_tag if cfg is not None else state.machine_tag,
+            group=cfg.group_name if cfg is not None else None,
+            is_configured=is_configured,
             cpu_usage=cpu,
             memory_usage=mem,
             disk_usage=disk,

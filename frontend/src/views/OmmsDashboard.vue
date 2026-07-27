@@ -411,8 +411,38 @@ async function loadOverviewTotal() {
 async function loadOsRows(group: string) {
   osLoading.value = true;
   try {
-    const data = await fetchOverviewOsList({ ...baseListParams, group });
-    osRows.value = normalizeRows(data);
+    const firstPage = await fetchOverviewOsList({ ...baseListParams, group });
+    const firstRows = normalizeRows(firstPage);
+
+    if (Array.isArray(firstPage)) {
+      osRows.value = dedupeOsRows(firstRows);
+      return;
+    }
+
+    const total = Math.max(0, Number(firstPage.total ?? firstRows.length));
+    const pageSize = Math.max(1, Number(firstPage.page_size ?? baseListParams.page_size));
+    const pageCount = Math.ceil(total / pageSize);
+
+    // OS 表格不展示分页控件，因此根据 total 拉取全部页，避免
+    // state-only OS 被固定第一页截断。Promise.all 保持请求数组的页码顺序。
+    const remainingPages = await Promise.all(
+      Array.from({ length: Math.max(0, pageCount - 1) }, (_, index) =>
+        fetchOverviewOsList({
+          ...baseListParams,
+          group,
+          page_no: index + 2,
+          page_size: pageSize,
+        }),
+      ),
+    );
+    const allRows = [firstRows, ...remainingPages.map((page) => normalizeRows(page))].flat();
+    const uniqueRows = dedupeOsRows(allRows);
+
+    // 任一后续页失败会直接 reject；数量不足也报错，不用不完整结果替换当前列表。
+    if (uniqueRows.length < total) {
+      throw new Error(`OS 状态列表加载不完整：预期 ${total} 条，实际 ${uniqueRows.length} 条`);
+    }
+    osRows.value = uniqueRows;
   } finally {
     osLoading.value = false;
   }
@@ -600,6 +630,41 @@ function normalizeRows<T>(data: MonitorListData<T> | T[]) {
   // 后端兼容接口可能使用不同列表字段名，这里统一收敛为数组供组件消费。
   if (Array.isArray(data)) return data;
   return data.details || data.list || data.records || data.items || data.rows || data.data || [];
+}
+
+/**
+ * 按 OS 兼容接口可见字段去除多页请求中的重复行。
+ *
+ * @param rows 按页码顺序合并的 OS 行。
+ * @returns 保留首次出现顺序的唯一 OS 行。
+ */
+function dedupeOsRows(rows: MonitorRow[]) {
+  const seen = new Set<string>();
+
+  return rows.filter((row) => {
+    const identity = [
+      row.machine_tag,
+      row.group,
+      row.is_configured,
+      row.update_time,
+      row.cpu_usage,
+      row.mem_usage,
+      row.disk_usage,
+      row.disk_home_usage,
+      row.cpu_alarm,
+      row.mem_alarm,
+      row.disk_alarm,
+      row.disk_home_alarm,
+      row.is_alarm,
+      row.is_offline,
+    ]
+      .map((value) => String(value ?? ''))
+      .join('\u0000');
+
+    if (seen.has(identity)) return false;
+    seen.add(identity);
+    return true;
+  });
 }
 
 /**
