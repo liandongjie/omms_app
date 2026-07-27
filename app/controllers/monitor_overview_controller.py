@@ -19,6 +19,7 @@ from app.schemas.monitor_overview_schema import (
     MonitorOverviewTotalResponse,
 )
 from app.services.ops_service import ABNORMAL_STATUSES, OpsService, get_ops_service
+from app.utils.ops_parse import parse_update_time
 
 
 OS_SORT_FIELDS = {
@@ -291,6 +292,7 @@ class MonitorOverviewController(BaseController):
         return MonitorOverviewOsItem(
             machine_tag=item.machine_tag,
             group=item.group,
+            is_configured=item.is_configured,
             cpu_usage=item.cpu_usage,
             mem_usage=item.memory_usage,
             disk_usage=item.disk_usage,
@@ -370,19 +372,46 @@ class MonitorOverviewController(BaseController):
         Raises:
             ValueError: sort_by 不在 OS 排序字段白名单中时抛出。
         """
-        # 未指定排序时优先展示告警、离线项，再按机器标签稳定排序。
+        def identity_key(item: MonitorOverviewOsItem) -> tuple:
+            group = (item.group or "").strip()
+            update_time = parse_update_time(item.update_time)
+            update_time_desc = (
+                update_time is None,
+                -update_time.toordinal() if update_time else 0,
+                -update_time.hour if update_time else 0,
+                -update_time.minute if update_time else 0,
+                -update_time.second if update_time else 0,
+            )
+            return (
+                not bool(group),
+                group,
+                item.machine_tag,
+                not item.is_configured,
+                *update_time_desc,
+            )
+
+        # 完整列表先稳定排序，调用方再计算 total 和分页，避免多页重复或遗漏。
         if not sort_by:
-            return sorted(items, key=lambda item: (-item.is_alarm, -item.is_offline, item.machine_tag))
+            return sorted(
+                items,
+                key=lambda item: (
+                    -item.is_alarm,
+                    -item.is_offline,
+                    *identity_key(item),
+                ),
+            )
 
         if sort_by not in OS_SORT_FIELDS:
             raise ValueError(f"unsupported sort_by: {sort_by}")
 
-        reverse = sort_order == "desc"
-        return sorted(
-            items,
-            key=lambda item: (getattr(item, sort_by) is None, getattr(item, sort_by)),
-            reverse=reverse,
+        # 先应用稳定 tie-breaker，再依请求字段排序；空值始终置后。
+        ordered = sorted(items, key=identity_key)
+        present = [item for item in ordered if getattr(item, sort_by) is not None]
+        missing = [item for item in ordered if getattr(item, sort_by) is None]
+        present.sort(
+            key=lambda item: getattr(item, sort_by), reverse=sort_order == "desc"
         )
+        return present + missing
 
     @staticmethod
     def _sort_process_items(

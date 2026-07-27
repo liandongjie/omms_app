@@ -354,6 +354,115 @@ def test_os_parse_failure_returns_unknown_instead_of_raising():
     assert item.status == "unknown"
 
 
+def test_os_state_only_is_visible_only_for_all_group_and_uses_existing_rules():
+    configured_state = state(
+        machine_tag="configured-machine",
+        dat='{"cpu": 0.1, "mem": 0.2, "disk": 0.3}',
+    )
+    state_only = state(
+        machine_tag="etf_build_2026",
+        dat='{"cpu": 0.245, "mem": 0.133, "disk": 0.908}',
+    )
+    service = FakeOpsService(
+        [cfg(machine_tag="configured-machine", group_name="op")],
+        [configured_state, state_only],
+    )
+
+    all_items = service.get_os_states(group="all", date="20260625")
+
+    assert [item.machine_tag for item in all_items] == [
+        "configured-machine",
+        "etf_build_2026",
+    ]
+    assert all_items[0].group == "op"
+    assert all_items[0].is_configured is True
+    unconfigured = all_items[1]
+    assert unconfigured.group is None
+    assert unconfigured.is_configured is False
+    assert unconfigured.cpu_usage == 0.245
+    assert unconfigured.memory_usage == 0.133
+    assert unconfigured.disk_usage == 0.908
+    assert unconfigured.disk_home_usage is None
+    assert unconfigured.status == "error"
+    assert [item.machine_tag for item in service.get_os_states(group="op", date="20260625")] == [
+        "configured-machine"
+    ]
+    assert service.get_os_states(group="algo00x", date="20260625") == []
+    assert [
+        item.machine_tag
+        for item in service.get_os_states(only_error=True, date="20260625")
+    ] == ["etf_build_2026"]
+
+
+@pytest.mark.parametrize(
+    ("dat", "update_time", "expected_status"),
+    [
+        ('{"cpu": 0.1, "mem": 0.2, "disk": 0.3}', stale_time(), "offline"),
+        ("{broken", "auto", "unknown"),
+        ('{"cpu": 0.1, "mem": 0.2}', "auto", "unknown"),
+    ],
+)
+def test_os_state_only_stale_parse_and_required_metric_rules(
+    dat, update_time, expected_status
+):
+    item = FakeOpsService(
+        [],
+        [state(machine_tag="state-only", dat=dat, update_time=update_time)],
+    ).get_os_states(date="20260625")[0]
+
+    assert item.status == expected_status
+    assert item.is_configured is False
+
+
+def test_os_uses_latest_state_per_machine_and_key_without_duplicate_state_only():
+    old_state = state(
+        machine_tag="machine1",
+        value="old",
+        dat='{"cpu": 0.1, "mem": 0.2, "disk": 0.3}',
+        update_time=fmt_time(FIXED_NOW - timedelta(minutes=2)),
+    )
+    latest_state = state(
+        machine_tag="machine1",
+        value="latest",
+        dat='{"cpu": 0.4, "mem": 0.5, "disk": 0.6}',
+        update_time=fmt_time(FIXED_NOW - timedelta(minutes=1)),
+    )
+
+    items = FakeOpsService([cfg()], [latest_state, old_state]).get_os_states(
+        date="20260625"
+    )
+
+    assert len(items) == 1
+    assert items[0].is_configured is True
+    assert items[0].cpu_usage == 0.4
+    assert items[0].update_time == fmt_time(FIXED_NOW - timedelta(minutes=1))
+
+
+def test_os_overview_total_counts_configured_plus_today_state_only_visible_items():
+    service = FakeOpsService(
+        [cfg(machine_tag="configured")],
+        [
+            state(
+                machine_tag="configured",
+                dat='{"cpu": 0.1, "mem": 0.2, "disk": 0.3}',
+            ),
+            state(
+                machine_tag="state-only",
+                dat='{"cpu": 0.1, "mem": 0.2, "disk": 0.908}',
+            ),
+        ],
+    )
+
+    visible_items = service.get_os_states(date="20260625")
+    overview = service.get_overview(date="20260625")
+
+    # OS total 口径是“配置项 + 当天 state-only 项”的可见 OS 总数。
+    assert overview.os.total == len(visible_items) == 2
+    assert overview.os.alarm_count == sum(
+        item.status in ops_service_module.ABNORMAL_STATUSES for item in visible_items
+    ) == 1
+
+
 def test_process_normal_missing_and_stale():
     process_cfg = cfg(cfg_type="process", cfg_key="tlBinTradeLite", value="sys_simnow.yaml")
     fresh_state = state(

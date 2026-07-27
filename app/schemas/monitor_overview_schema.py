@@ -61,6 +61,7 @@ class MonitorOverviewGroupListResponse(BaseModel):
 class MonitorOverviewOsItem(BaseModel):
     machine_tag: str
     group: str | None = None
+    is_configured: bool = True
     cpu_usage: float | None = None
     mem_usage: float | None = None
     disk_usage: float | None = None

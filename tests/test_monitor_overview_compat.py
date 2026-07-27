@@ -242,10 +242,11 @@ def test_overview_os_list_uses_defaults_and_returns_page_shape():
         "page_size": 1,
         "total": 2,
         "details": [
-            {
-                "machine_tag": "machine-normal",
-                "group": "algo00x",
-                "cpu_usage": 0.65,
+                {
+                    "machine_tag": "machine-normal",
+                    "group": "algo00x",
+                    "is_configured": True,
+                    "cpu_usage": 0.65,
                 "mem_usage": 0.86,
                 "disk_usage": 0.72,
                 "disk_home_usage": 0.52,
@@ -271,6 +272,7 @@ def test_overview_os_list_supports_group_and_pagination():
     assert result.total == 1
     assert result.details[0].machine_tag == "machine-offline"
     assert result.details[0].group == "op"
+    assert result.details[0].is_configured is True
     assert result.details[0].is_offline == 1
     assert result.details[0].is_alarm == 1
     assert result.details[0].cpu_alarm == 0
@@ -279,6 +281,72 @@ def test_overview_os_list_supports_group_and_pagination():
     assert result.details[0].disk_home_usage is None
     assert result.details[0].disk_home_alarm == 0
     assert service.os_state_calls == [{"group": "op"}]
+
+
+def test_overview_os_list_maps_state_only_configuration_flag():
+    service = FakeOverviewOpsService()
+    service.get_os_states = lambda group=None: [
+        OsStateItem(
+            machine_tag="state-only",
+            group=None,
+            is_configured=False,
+            status="error",
+            message="disk usage too high",
+        )
+    ]
+    controller = MonitorOverviewController(service)
+
+    result = controller.get_os_list(MonitorOverviewOsListRequest(page_no=1, page_size=10))
+
+    assert result.total == 1
+    assert result.details[0].machine_tag == "state-only"
+    assert result.details[0].group is None
+    assert result.details[0].is_configured is False
+    assert result.details[0].is_alarm == 1
+
+
+def test_overview_os_list_stably_sorts_complete_set_before_pagination():
+    service = FakeOverviewOpsService()
+    service.get_os_states = lambda group=None: [
+        OsStateItem(
+            machine_tag="machine-z",
+            group=None,
+            is_configured=False,
+            status="normal",
+            message="normal",
+            update_time="20260727 10:04:00",
+        ),
+        OsStateItem(
+            machine_tag="machine-b",
+            group="op",
+            status="normal",
+            message="normal",
+            update_time="20260727 10:03:00",
+        ),
+        OsStateItem(
+            machine_tag="machine-a",
+            group="algo00x",
+            status="normal",
+            message="normal",
+            update_time="20260727 10:02:00",
+        ),
+        OsStateItem(
+            machine_tag="machine-c",
+            group="op",
+            status="offline",
+            message="offline",
+            update_time="20260727 10:01:00",
+        ),
+    ]
+    controller = MonitorOverviewController(service)
+
+    first = controller.get_os_list(MonitorOverviewOsListRequest(page_no=1, page_size=2))
+    second = controller.get_os_list(MonitorOverviewOsListRequest(page_no=2, page_size=2))
+
+    combined = [item.machine_tag for item in first.details + second.details]
+    assert first.total == second.total == 4
+    assert combined == ["machine-c", "machine-a", "machine-b", "machine-z"]
+    assert len(combined) == len(set(combined))
 
 
 def test_overview_os_list_clamps_page_size_to_config():
