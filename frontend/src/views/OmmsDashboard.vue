@@ -79,38 +79,32 @@
             </a-space>
           </template>
           <div v-if="processGroup === ''" class="process-group-list">
-            <div v-if="processLoading || opProcessRows.length" class="process-group-block">
+            <div
+              v-for="section in processGroupSections"
+              :key="section.key"
+              class="process-group-block"
+            >
               <div class="process-group-header">
-                <div class="process-group-title">op</div>
-                <span class="process-group-count">{{ opProcessRows.length }} 条</span>
+                <div class="process-group-title">{{ section.title }}</div>
+                <span class="process-group-count">{{ section.rows.length }} 条</span>
               </div>
-              <ProcessStatusTable compact :rows="opProcessRows" :loading="processLoading" />
-            </div>
-            <div v-if="processLoading || algoProcessRows.length" class="process-group-block">
-              <div class="process-group-header">
-                <div class="process-group-title">algo00x</div>
-                <span class="process-group-count">{{ algoProcessRows.length }} 条</span>
-              </div>
-              <AlgoProcessStatusTable :rows="algoProcessRows" :loading="processLoading" />
-            </div>
-            <div v-if="otherProcessRows.length" class="process-group-block">
-              <div class="process-group-header">
-                <div class="process-group-title">其他分组</div>
-                <span class="process-group-count">{{ otherProcessRows.length }} 条</span>
-              </div>
-              <ProcessStatusTable compact :rows="otherProcessRows" :loading="processLoading" />
-            </div>
-            <div v-if="ungroupedProcessRows.length" class="process-group-block">
-              <div class="process-group-header">
-                <div class="process-group-title">未分组</div>
-                <span class="process-group-count">{{ ungroupedProcessRows.length }} 条</span>
-              </div>
-              <ProcessStatusTable compact :rows="ungroupedProcessRows" :loading="processLoading" />
+              <!-- algo00x 保留扩展指标列，其他动态分组统一使用普通进程表。 -->
+              <AlgoProcessStatusTable
+                v-if="section.group === 'algo00x'"
+                :rows="section.rows"
+                :loading="processLoading"
+              />
+              <ProcessStatusTable
+                v-else
+                compact
+                :rows="section.rows"
+                :loading="processLoading"
+              />
             </div>
           </div>
           <AlgoProcessStatusTable
             v-else-if="normalizedProcessGroup === 'algo00x'"
-            :rows="algoProcessRows"
+            :rows="visibleProcessRows"
             :loading="processLoading"
           />
           <ProcessStatusTable v-else :rows="visibleProcessRows" :loading="processLoading" />
@@ -182,6 +176,13 @@ interface GroupOption {
   value: string;
 }
 
+interface ProcessGroupSection {
+  key: string;
+  group: string | null;
+  title: string;
+  rows: MonitorRow[];
+}
+
 interface StatBlock {
   title: string;
   total: number;
@@ -201,6 +202,10 @@ const menuItems: { key: SectionKey; label: string }[] = [
 ];
 
 const AUTO_REFRESH_INTERVAL_MS = 5000;
+const PROCESS_GROUP_PRIORITY = new Map([
+  ['op', 0],
+  ['algo00x', 1],
+]);
 
 const overviewTotal = ref<OverviewTotalData>({});
 const groupItems = ref<MonitorGroupItem[]>([]);
@@ -243,21 +248,51 @@ const visibleOsRows = computed(() =>
   [...filterRows(osRows.value, osOnlyError.value)].sort(compareOsRows),
 );
 const visibleProcessRows = computed(() => filterRows(processRows.value, processOnlyError.value));
-// “全部”视图按分组拆给不同表格；指定分组时仍复用对应的过滤结果。
 const normalizedProcessGroup = computed(() => processGroup.value.trim());
-const opProcessRows = computed(() => visibleProcessRows.value.filter((row) => normalizeGroup(row.group) === 'op'));
-const algoProcessRows = computed(() =>
-  visibleProcessRows.value.filter((row) => normalizeGroup(row.group) === 'algo00x'),
-);
-const otherProcessRows = computed(() =>
-  visibleProcessRows.value.filter((row) => {
+const processGroupSections = computed<ProcessGroupSection[]>(() => {
+  const groupedRows = new Map<string, MonitorRow[]>();
+  const ungroupedRows: MonitorRow[] = [];
+
+  // “全部”视图按每行真实 group 动态分组；trim 后的非空名称均为合法分组，
+  // 大小写仍保持区分，不再统一落入“其他分组”。
+  visibleProcessRows.value.forEach((row) => {
     const group = normalizeGroup(row.group);
-    return Boolean(group) && group !== 'op' && group !== 'algo00x';
-  }),
-);
-const ungroupedProcessRows = computed(() =>
-  visibleProcessRows.value.filter((row) => !normalizeGroup(row.group)),
-);
+    if (!group) {
+      // 空 group 单独收集，不使用“未分组”作为 Map key，避免与同名合法分组冲突。
+      ungroupedRows.push(row);
+      return;
+    }
+
+    const rows = groupedRows.get(group) || [];
+    rows.push(row);
+    groupedRows.set(group, rows);
+  });
+
+  // 分组接口只提供标题映射；缺失或失败时回退真实 group，不影响行本身的分组。
+  const displayNames = new Map(
+    groupItems.value.map((item) => [item.group, item.display_name || item.group]),
+  );
+  const sections: ProcessGroupSection[] = [...groupedRows.entries()]
+    .sort(([left], [right]) => {
+      // 固定 op、algo00x 在前，其余真实分组按名称稳定排序。
+      const priority =
+        (PROCESS_GROUP_PRIORITY.get(left) ?? PROCESS_GROUP_PRIORITY.size) -
+        (PROCESS_GROUP_PRIORITY.get(right) ?? PROCESS_GROUP_PRIORITY.size);
+      if (priority !== 0) return priority;
+      return left < right ? -1 : left > right ? 1 : 0;
+    })
+    .map(([group, rows]) => ({
+      key: `group:${group}`,
+      group,
+      title: displayNames.get(group) || group,
+      rows,
+    }));
+
+  if (ungroupedRows.length) {
+    sections.push({ key: 'ungrouped', group: null, title: '未分组', rows: ungroupedRows });
+  }
+  return sections;
+});
 const osAlarmCount = computed(() => countAlarm(osRows.value));
 const processAlarmCount = computed(() => countAlarm(processRows.value));
 const logAlarmCount = computed(() => countAlarm(logRows.value));
