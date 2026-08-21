@@ -29,6 +29,7 @@ ENV/
 !.env.development.example
 !.env.testing.example
 !.env.production.example
+!.env.docker.example
 
 # Logs
 *.log

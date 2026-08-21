@@ -1,0 +1,46 @@
+# Docker MySQL 本地开发环境
+#
+# 仅包含 MySQL 服务和数据自动初始化，不包含后端/前端服务。
+# 后端和前端仍在本地运行，通过 127.0.0.1:3307 连接 Docker MySQL。
+#
+# 使用方法：
+#   docker compose up -d          # 启动 MySQL（首次启动自动建库导入数据）
+#   docker compose logs -f mysql  # 查看启动日志
+#   docker compose down           # 停止（保留数据）
+#   docker compose down -v        # 停止并删除数据卷（重新初始化）
+#
+# 连接信息见 .env.docker.example
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: omms-mysql
+    restart: unless-stopped
+    environment:
+      # root 密码，仅用于本地开发，不要用于生产
+      MYSQL_ROOT_PASSWORD: omms_dev_root
+      # 首次启动自动创建的数据库
+      MYSQL_DATABASE: omms_app
+      # 应用用户（后端用此用户连接）
+      MYSQL_USER: omms
+      MYSQL_PASSWORD: omms_dev
+    ports:
+      # 外部 3307 避免与本地 MySQL 3306 冲突
+      - "3307:3306"
+    volumes:
+      # 数据持久化：容器删除后数据仍保留，除非显式 down -v
+      - omms-mysql-data:/var/lib/mysql
+      # 首次启动自动执行 init 目录下的 .sql 文件（按文件名升序）
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d:ro
+    command: >-
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --sql-mode=STRICT_TRANS_TABLES
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-pomms_dev_root"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  omms-mysql-data:
