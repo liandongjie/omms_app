@@ -59,6 +59,7 @@ Thumbs.db
 
 # Runtime files
 *.pid
+benchmark-results/
 
 # Database local files
 *.sqlite
