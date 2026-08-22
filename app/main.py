@@ -1,10 +1,16 @@
-from fastapi import FastAPI, Depends
+import logging
+
+from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 import contextlib
 
 from app.routes import monitor_overview_route, test_route
+from app.schemas.common import ErrorDetail, ErrorResponseModel
 
 from app.utils.db import get_db
+
+logger = logging.getLogger(__name__)
 
 
 class Utf8JSONResponse(JSONResponse):
@@ -25,6 +31,52 @@ app = FastAPI(
         "required_props_first": True
     },
 )
+
+
+# 所有未捕获异常统一转换为 envelope；参数校验错误保留字段级明细。
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    if exc.status_code >= 500:
+        logger.error(
+            "server HTTP exception on %s %s: %s",
+            request.method,
+            request.url.path,
+            exc.detail,
+        )
+        msg = "internal server error"
+    else:
+        msg = str(exc.detail)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=ErrorResponseModel(code=exc.status_code, msg=msg).model_dump(),
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    errors = [
+        ErrorDetail(
+            field=".".join(str(part) for part in err.get("loc", [])),
+            message=str(err.get("msg", "")),
+        )
+        for err in exc.errors()
+    ]
+    return JSONResponse(
+        status_code=422,
+        content=ErrorResponseModel(
+            code=422, msg="request validation failed", errors=errors
+        ).model_dump(),
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception("unhandled exception on %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        # 未知异常详情只进入服务器日志，响应不得泄漏 SQL、凭据或调用栈。
+        content=ErrorResponseModel(code=500, msg="internal server error").model_dump(),
+    )
 
 # 创建 MQ 控制器实例（自动启动订阅）
 mq_controller = None
