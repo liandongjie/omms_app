@@ -8,7 +8,16 @@ OMMS 是一个面向内部运维场景的前后端一体化监控系统，当前
 - 最近日志查询；
 - 按配置分组筛选。
 
-后端从 MySQL 中读取 `ops_cfg`、`ops_state`、`ops_log`，计算监控状态并通过 `/api_omms` 接口提供给前端；前端默认每 5 秒刷新一次监控数据。
+后端从 MySQL 中读取 `ops_cfg`、`ops_state`、`ops_log`，计算监控状态并通过 `/api_omms` 接口提供给前端；前端优先通过 WebSocket 接收实时刷新事件，连接异常时自动回退到 5 秒轮询。
+
+工程化与性能增强（已完成）：
+
+- 统一异常处理与请求日志中间件（method / path / status / duration）；
+- Redis 旁路缓存（TTL 3 秒，Redis 不可用时自动降级直查数据库）；
+- RabbitMQ 消费端 + 模拟生产者，数据链路“上游 → MQ → 消费端 → MySQL → API → 前端”完整可控；
+- WebSocket 实时推送（`/ws/monitor`）与轮询兜底；
+- `ops_log` / `ops_cfg` 复合索引，指定分组时状态查询下推；
+- `/health` 健康检查；MySQL 不可用时启动即失败（fail-fast），不再静默降级 SQLite。
 
 ## 技术栈
 
@@ -214,6 +223,30 @@ http://192.168.1.23:5173/
 - `5173` 和 `8004` 端口是否被其他进程占用；
 - 前端所在电脑是否能够访问本机后端 `127.0.0.1:8004`。
 
+## Docker 基础设施
+
+根目录 `docker-compose.yml` 提供 MySQL / Redis / RabbitMQ 三个服务：
+
+```powershell
+docker compose up -d
+```
+
+- MySQL：`127.0.0.1:3307`，首次启动自动建库并导入示例数据；
+- Redis：`127.0.0.1:6380`（缓存层，不可用时自动降级；外部端口避开本地 6379）；
+- RabbitMQ：`127.0.0.1:5672`（AMQP），管理台 `http://127.0.0.1:15672`（omms / omms_dev）。
+
+后端启动前把 `.env.docker.example` 复制为 `.env`，并设置 `ENVIRONMENT=docker`（或按需修改连接参数）。
+
+## 数据生成与模拟生产者
+
+```powershell
+# 生成 5 万状态 + 5 万日志 + 50 台机器的压测基线（清空重建，可重复执行）
+.\.venv\Scripts\python.exe -m scripts.generate_data --states 50000 --logs 50000 --machines 50 --truncate
+
+# 模拟上游生产者：向 RabbitMQ 发布消息（配合消费端演示完整链路）
+.\.venv\Scripts\python.exe -m scripts.mq_producer --count 1000 --rate 20
+```
+
 ## 测试与构建
 
 ### 后端测试
@@ -235,7 +268,7 @@ npm run build
 
 ## 当前接口
 
-当前正式注册的监控接口为：
+当前正式注册的接口为：
 
 ```text
 GET  /api_omms/monitor/overview/total
@@ -243,6 +276,8 @@ GET  /api_omms/monitor/group/list
 POST /api_omms/monitor/overview/os/list
 POST /api_omms/monitor/overview/process/list
 POST /api_omms/monitor/overview/log/list
+GET  /health                                    # 健康检查
+WS   /ws/monitor                                # 实时推送（事件驱动刷新）
 ```
 
 详细请求参数、返回字段和统计口径见：
@@ -251,7 +286,7 @@ POST /api_omms/monitor/overview/log/list
 
 ## 开发注意事项
 
-- 当前 `app/main.py` 只注册 `/api_omms` 监控路由和测试路由；不要仅凭文件存在认定其他路由已经生效。
+- 当前 `app/main.py` 注册 `/api_omms`、`/health`、`/ws/monitor` 和 `/api_test`；不要仅凭文件存在认定其他路由已经生效。
 - OS、进程的状态不是数据库直接存储的最终值，而是后端根据配置、上报时间和指标动态计算。
 - 修改监控统计、匹配或分页逻辑时，应同时检查 Service、Controller、Schema、前端展示和相关测试。
 - 不要提交 `.env.development`、数据库密码、令牌或其他真实凭据。

@@ -29,7 +29,7 @@
           <h1>运维监控中心</h1>
         </div>
         <div class="topbar__actions">
-          <span class="refresh-text">刷新间隔 5 秒</span>
+          <span class="refresh-text">{{ wsConnected ? '实时推送' : '刷新间隔 5 秒' }}</span>
           <a-switch v-model:checked="autoRefresh" checked-children="自动" un-checked-children="手动" />
           <a-button type="primary" :loading="pageLoading" @click="refreshAll">刷新</a-button>
         </div>
@@ -150,7 +150,7 @@ import { message } from 'ant-design-vue';
 import {
   fetchMonitorGroupList,
   fetchOverviewLogList,
-  fetchOverviewOsList,
+  fetchOverviewOsSnapshot,
   fetchOverviewProcessList,
   fetchOverviewTotal,
   type LogListParams,
@@ -161,6 +161,11 @@ import {
   type MonitorRow,
   type OverviewTotalData,
 } from '../api/omms';
+import { connectMonitorSocket, type MonitorSocketHandle } from '../api/monitorSocket';
+import {
+  createRefreshCoordinator,
+  getAutoRefreshInterval,
+} from '../utils/refreshCoordinator';
 import GroupFilter from '../components/GroupFilter.vue';
 import AlgoProcessStatusTable from '../components/AlgoProcessStatusTable.vue';
 import OsStatusTable from '../components/OsStatusTable.vue';
@@ -201,7 +206,6 @@ const menuItems: { key: SectionKey; label: string }[] = [
   { key: 'logs', label: '关键日志' },
 ];
 
-const AUTO_REFRESH_INTERVAL_MS = 5000;
 const PROCESS_GROUP_PRIORITY = new Map([
   ['op', 0],
   ['algo00x', 1],
@@ -225,7 +229,6 @@ const logPageNo = ref(1);
 const logPageSize = ref(20);
 const logTotal = ref(0);
 const autoRefresh = ref(true);
-const refreshing = ref(false);
 const pageLoading = ref(false);
 const osLoading = ref(false);
 const processLoading = ref(false);
@@ -235,6 +238,8 @@ const logErrorMessage = ref('');
 const activeSection = ref<SectionKey>('overview');
 const sectionRefs = new Map<SectionKey, HTMLElement>();
 let refreshTimer: number | undefined;
+let socketHandle: MonitorSocketHandle | null = null;
+const wsConnected = ref(false);
 
 // OS 与进程列表统一取接口第一页；分组切换时只替换 group，保持请求口径一致。
 const baseListParams: Omit<MonitorListParams, 'group'> = {
@@ -242,6 +247,10 @@ const baseListParams: Omit<MonitorListParams, 'group'> = {
   page_size: 100,
   sort_by: '',
   sort_order: '',
+};
+const baseSortParams = {
+  sort_by: baseListParams.sort_by,
+  sort_order: baseListParams.sort_order,
 };
 
 const visibleOsRows = computed(() =>
@@ -330,11 +339,15 @@ const statCards = computed<StatBlock[]>(() => [
 onMounted(() => {
   loadGroupItems();
   refreshAll();
+  startSocket();
   startAutoRefresh();
+  document.addEventListener('visibilitychange', handleVisibilityChange);
 });
 
 onBeforeUnmount(() => {
+  stopSocket();
   stopAutoRefresh();
+  document.removeEventListener('visibilitychange', handleVisibilityChange);
 });
 
 watch(autoRefresh, (enabled) => {
@@ -344,6 +357,7 @@ watch(autoRefresh, (enabled) => {
   }
 
   stopAutoRefresh();
+  refreshCoordinator.cancelPending();
 });
 
 watch(logOnlyError, () => {
@@ -403,11 +417,13 @@ async function loadGroupItems() {
  *
  * @returns 本轮刷新完成后的 Promise。
  */
-async function refreshAll() {
-  // 自动刷新和手动刷新共用入口，防止上一轮请求未结束时再次并发刷新。
-  if (refreshing.value) return;
+const refreshCoordinator = createRefreshCoordinator(refreshOnce);
 
-  refreshing.value = true;
+async function refreshAll() {
+  await refreshCoordinator.request();
+}
+
+async function refreshOnce() {
   pageLoading.value = true;
   errorMessage.value = '';
 
@@ -424,7 +440,6 @@ async function refreshAll() {
     message.error(text);
   } finally {
     pageLoading.value = false;
-    refreshing.value = false;
   }
 }
 
@@ -446,34 +461,11 @@ async function loadOverviewTotal() {
 async function loadOsRows(group: string) {
   osLoading.value = true;
   try {
-    const firstPage = await fetchOverviewOsList({ ...baseListParams, group });
-    const firstRows = normalizeRows(firstPage);
+    const snapshot = await fetchOverviewOsSnapshot({ ...baseSortParams, group });
+    const uniqueRows = dedupeOsRows(normalizeRows(snapshot));
+    const total = Array.isArray(snapshot) ? uniqueRows.length : Number(snapshot.total ?? uniqueRows.length);
 
-    if (Array.isArray(firstPage)) {
-      osRows.value = dedupeOsRows(firstRows);
-      return;
-    }
-
-    const total = Math.max(0, Number(firstPage.total ?? firstRows.length));
-    const pageSize = Math.max(1, Number(firstPage.page_size ?? baseListParams.page_size));
-    const pageCount = Math.ceil(total / pageSize);
-
-    // OS 表格不展示分页控件，因此根据 total 拉取全部页，避免
-    // state-only OS 被固定第一页截断。Promise.all 保持请求数组的页码顺序。
-    const remainingPages = await Promise.all(
-      Array.from({ length: Math.max(0, pageCount - 1) }, (_, index) =>
-        fetchOverviewOsList({
-          ...baseListParams,
-          group,
-          page_no: index + 2,
-          page_size: pageSize,
-        }),
-      ),
-    );
-    const allRows = [firstRows, ...remainingPages.map((page) => normalizeRows(page))].flat();
-    const uniqueRows = dedupeOsRows(allRows);
-
-    // 任一后续页失败会直接 reject；数量不足也报错，不用不完整结果替换当前列表。
+    // snapshot 必须完整返回可见集合；数量不足时保留当前列表，避免静默截断。
     if (uniqueRows.length < total) {
       throw new Error(`OS 状态列表加载不完整：预期 ${total} 条，实际 ${uniqueRows.length} 条`);
     }
@@ -623,7 +615,13 @@ async function runAction(action: () => Promise<void>) {
  */
 function startAutoRefresh() {
   if (refreshTimer) return;
-  refreshTimer = window.setInterval(refreshAll, AUTO_REFRESH_INTERVAL_MS);
+  const interval = getAutoRefreshInterval(
+    autoRefresh.value,
+    wsConnected.value,
+    !document.hidden,
+  );
+  if (interval === undefined) return;
+  refreshTimer = window.setInterval(requestAutoRefresh, interval);
 }
 
 /**
@@ -634,6 +632,52 @@ function stopAutoRefresh() {
     window.clearInterval(refreshTimer);
     refreshTimer = undefined;
   }
+}
+
+/**
+ * 启动 WebSocket 实时推送；在线时保留低频校准轮询，断线时恢复 5 秒轮询。
+ */
+function startSocket() {
+  socketHandle?.close();
+  socketHandle = connectMonitorSocket({
+    onRefresh: requestAutoRefresh,
+    onStatusChange: (connected) => {
+      wsConnected.value = connected;
+      // 连接状态变化时重建 timer，切换 30 秒校准与 5 秒 fallback。
+      stopAutoRefresh();
+      startAutoRefresh();
+    },
+  });
+}
+
+/**
+ * 关闭 WebSocket 并重置句柄。
+ */
+function stopSocket() {
+  socketHandle?.close();
+  socketHandle = null;
+}
+
+/**
+ * 页面切后台时暂停轮询；回到前台补一次刷新，避免错过后台期间的推送。
+ */
+function handleVisibilityChange() {
+  if (document.hidden) {
+    stopAutoRefresh();
+    refreshCoordinator.cancelPending();
+    return;
+  }
+  requestAutoRefresh();
+  startAutoRefresh();
+}
+
+function requestAutoRefresh() {
+  const interval = getAutoRefreshInterval(
+    autoRefresh.value,
+    wsConnected.value,
+    !document.hidden,
+  );
+  void refreshCoordinator.requestAutomatic(interval !== undefined);
 }
 
 /**

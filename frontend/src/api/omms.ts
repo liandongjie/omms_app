@@ -14,6 +14,8 @@ export interface MonitorListParams {
   sort_order: string;
 }
 
+export type MonitorSnapshotParams = Pick<MonitorListParams, 'group' | 'sort_by' | 'sort_order'>;
+
 export interface LogListParams extends MonitorListParams {
   machine_tag?: string;
   only_error: number;
@@ -126,6 +128,14 @@ export function fetchMonitorGroupList() {
 export function fetchOverviewOsList(params: MonitorListParams) {
   return requestData<MonitorListData<MonitorRow> | MonitorRow[]>(
     '/api_omms/monitor/overview/os/list',
+    'POST',
+    params,
+  );
+}
+
+export function fetchOverviewOsSnapshot(params: MonitorSnapshotParams) {
+  return requestData<MonitorListData<MonitorRow> | MonitorRow[]>(
+    '/api_omms/monitor/overview/os/snapshot',
     'POST',
     params,
   );

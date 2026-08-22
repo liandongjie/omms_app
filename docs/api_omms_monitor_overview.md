@@ -302,3 +302,31 @@ POST /api_omms/monitor/overview/log/list
 
 - `warn`、`error`：`1`
 - `info` 或其他级别：`0`
+
+## 健康检查与实时推送
+
+```http
+GET /health
+```
+
+返回服务与数据库状态：
+
+```json
+{
+  "status": "ok",
+  "database": "up"
+}
+```
+
+数据库不可用时返回 `503`，且 `database` 为 `down`。
+
+```http
+WS /ws/monitor
+```
+
+服务端事件驱动刷新通道：
+
+- 连接成功后先收到 `{"event": "hello"}`；
+- 客户端每 10 秒发送 `ping`，服务端回复 `{"event": "pong"}`；
+- 后端检测到监控数据变化时广播 `{"event": "refresh"}`；
+- 前端断线后自动回退到 5 秒轮询。

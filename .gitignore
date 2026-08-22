@@ -29,6 +29,7 @@ ENV/
 !.env.development.example
 !.env.testing.example
 !.env.production.example
+!.env.docker.example
 
 # Logs
 *.log
@@ -58,6 +59,7 @@ Thumbs.db
 
 # Runtime files
 *.pid
+benchmark-results/
 
 # Database local files
 *.sqlite

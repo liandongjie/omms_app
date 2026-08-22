@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from sqlalchemy import BigInteger, Column, Integer, String, Text
+from sqlalchemy import BigInteger, Column, Index, Integer, String, Text
 
 from app.models.database import Base
 
@@ -9,7 +9,15 @@ class OpsLog(Base):
 
     __tablename__ = "ops_log"
 
+    __table_args__ = (
+        # 覆盖日志查询主路径：按日期过滤 + 机器/级别筛选 + log_id 倒序分页
+        Index("idx_ops_log_date_machine_level", "date", "machine_tag", "level", "log_id"),
+        # 连续覆盖按日期和级别筛选，并支持单级别下按 log_id 倒序分页。
+        Index("idx_ops_log_date_level_log_id", "date", "level", "log_id"),
+    )
+
     log_id = Column(BigInteger, primary_key=True, autoincrement=True, index=True)
+    event_id = Column(String(64), nullable=True, unique=True)
     date = Column(String(16), nullable=True)
     machine_tag = Column(String(32), nullable=True, index=True)
     log_name = Column(String(255), nullable=True)
@@ -40,6 +48,11 @@ class OpsCfg(Base):
     """
 
     __tablename__ = "ops_cfg"
+
+    __table_args__ = (
+        # 覆盖配置查询主路径：type + status + group 过滤
+        Index("idx_ops_cfg_type_status_group", "type", "status", "group"),
+    )
 
     type = Column(String(8), primary_key=True)
     machine_tag = Column(String(32), primary_key=True)

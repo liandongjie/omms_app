@@ -10,6 +10,7 @@ from app.controllers.monitor_overview_controller import (
 from app.schemas.monitor_overview_schema import (
     MonitorOverviewLogListRequest,
     MonitorOverviewOsListRequest,
+    MonitorOverviewOsSnapshotRequest,
     MonitorOverviewProcessListRequest,
 )
 from app.schemas.ops_schema import (
@@ -349,6 +350,29 @@ def test_overview_os_list_stably_sorts_complete_set_before_pagination():
     assert len(combined) == len(set(combined))
 
 
+def test_overview_os_snapshot_matches_complete_paginated_list():
+    service = FakeOverviewOpsService()
+    controller = MonitorOverviewController(service)
+
+    first = controller.get_os_list(MonitorOverviewOsListRequest(page_no=1, page_size=1))
+    second = controller.get_os_list(MonitorOverviewOsListRequest(page_no=2, page_size=1))
+    snapshot = controller.get_os_snapshot()
+
+    paginated = [item.model_dump() for item in first.details + second.details]
+    assert snapshot.total == 2
+    assert [item.model_dump() for item in snapshot.details] == paginated
+
+
+def test_overview_os_snapshot_preserves_group_filter():
+    service = FakeOverviewOpsService()
+    controller = MonitorOverviewController(service)
+
+    snapshot = controller.get_os_snapshot(MonitorOverviewOsSnapshotRequest(group=" op "))
+
+    assert [item.machine_tag for item in snapshot.details] == ["machine-offline"]
+    assert service.os_state_calls == [{"group": "op"}]
+
+
 def test_overview_os_list_clamps_page_size_to_config():
     service = FakeOverviewOpsService()
     service.settings = fake_settings(OPS_DEFAULT_PAGE_NO=1, OPS_DEFAULT_PAGE_SIZE=10, OPS_MAX_PAGE_SIZE=1)
@@ -639,6 +663,23 @@ def test_monitor_overview_os_list_route_accepts_empty_body_and_declares_utf8_cha
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/json; charset=utf-8"
     assert response.json()["data"] == {"page_no": 1, "page_size": 10, "total": 0, "details": []}
+
+
+def test_monitor_overview_os_snapshot_route_returns_complete_shape():
+    from app.main import app
+
+    class FakeController:
+        def get_os_snapshot(self, request=None):
+            return {"total": 1, "details": [{"machine_tag": "machine-a"}]}
+
+    app.dependency_overrides[get_monitor_overview_controller] = lambda: FakeController()
+    try:
+        response = TestClient(app).post("/api_omms/monitor/overview/os/snapshot", json={"group": "op"})
+    finally:
+        app.dependency_overrides.pop(get_monitor_overview_controller, None)
+
+    assert response.status_code == 200
+    assert response.json()["data"] == {"total": 1, "details": [{"machine_tag": "machine-a"}]}
 
 
 def test_monitor_overview_process_list_route_accepts_empty_body_and_declares_utf8_charset():
