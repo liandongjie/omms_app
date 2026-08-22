@@ -249,8 +249,15 @@ class OpsService(BaseService):
                 )
             ),
         )
+        # 指定分组时把状态查询下推到该组机器集合，减少全量读取；
+        # 分组口径下不展示 state-only，按配置机器过滤不会改变可见集合。
+        state_machine_tags = None
+        if not is_all_group:
+            state_machine_tags = sorted({cfg.machine_tag for cfg in cfgs})
+            if not state_machine_tags:
+                return []
         # 获取指定日期的 OS 状态记录
-        states = self._get_states("os", target_date)
+        states = self._get_states("os", target_date, machine_tags=state_machine_tags)
 
         # 同一 (machine_tag, key) 可能有多条候选，先稳定选取 update_time 最新的一条。
         state_candidates = {}
@@ -329,14 +336,27 @@ class OpsService(BaseService):
         is_all_group = self._is_all_group(group)
         # 获取活动的进程监控配置（全部分组时不传分组参数）
         cfgs = self._get_active_cfgs("process", None if is_all_group else group)
+        # 指定分组时把状态查询下推到该组机器集合，减少全量读取；
+        # 分组口径下不展示 state-only，按配置机器过滤不会改变可见集合。
+        state_machine_tags = None
+        if not is_all_group:
+            state_machine_tags = sorted({cfg.machine_tag for cfg in cfgs})
+            if not state_machine_tags:
+                return []
         # 获取指定日期的进程状态记录
-        states = self._get_states("process", target_date)
+        states = self._get_states("process", target_date, machine_tags=state_machine_tags)
+        # 按机器预索引状态，避免每个配置都线性扫描全量状态（O(cfg*states) 降为 O(cfg+states)）。
+        states_by_machine: dict[str, list[OpsState]] = {}
+        for state in states:
+            states_by_machine.setdefault(state.machine_tag, []).append(state)
 
         items = []
         matched_state_ids = set()
         # 遍历配置，为每个配置收集全部候选后再选择当前盘次的状态。
         for cfg in cfgs:
-            candidates = self._find_process_state_candidates(cfg, states)
+            candidates = self._find_process_state_candidates(
+                cfg, states_by_machine.get(cfg.machine_tag, ())
+            )
             classified = [
                 (state, self._classify_process_session(state))
                 for state in candidates
@@ -588,12 +608,15 @@ class OpsService(BaseService):
             query = query.filter(OpsCfg.group_name == group)
         return query.all()
 
-    def _get_states(self, state_type: str, date: str) -> list[OpsState]:
-        return (
-            self.db.query(OpsState)
-            .filter(OpsState.type == state_type, OpsState.date == date)
-            .all()
+    def _get_states(
+        self, state_type: str, date: str, machine_tags: list[str] | None = None
+    ) -> list[OpsState]:
+        query = self.db.query(OpsState).filter(
+            OpsState.type == state_type, OpsState.date == date
         )
+        if machine_tags is not None:
+            query = query.filter(OpsState.machine_tag.in_(machine_tags))
+        return query.all()
 
     def _get_group_machine_tags(self, group: str | None) -> list[str]:
         # 分组与日志之间通过启用配置的 machine_tag 间接关联。

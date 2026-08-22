@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS `ops_log` (
   UNIQUE KEY `uq_ops_log_event_id` (`event_id`),
   KEY `idx_ops_log_machine_tag` (`machine_tag`),
   KEY `idx_ops_log_level` (`level`),
+  KEY `idx_ops_log_date_machine_level` (`date`, `machine_tag`, `level`, `log_id`),
   KEY `idx_ops_log_date_level_log_id` (`date`, `level`, `log_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

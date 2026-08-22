@@ -10,7 +10,8 @@ CREATE TABLE IF NOT EXISTS `ops_cfg` (
   `key`         VARCHAR(128) NOT NULL,
   `value`       TEXT,
   `work_time`   TEXT,
-  `status`      INT
+  `status`      INT,
+  KEY `idx_ops_cfg_type_status_group` (`type`, `status`, `group`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- OS 配置：每组机器一条 os 类型配置

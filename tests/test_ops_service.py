@@ -75,8 +75,15 @@ class FakeOpsService(OpsService):
             items = [item for item in items if item.group_name == group]
         return items
 
-    def _get_states(self, state_type, date):
-        return [item for item in self.states if item.type == state_type and item.date == date]
+    def _get_states(self, state_type, date, machine_tags=None):
+        items = [
+            item
+            for item in self.states
+            if item.type == state_type and item.date == date
+        ]
+        if machine_tags is not None:
+            items = [item for item in items if item.machine_tag in machine_tags]
+        return items
 
     def _get_log_stats(self, group, date, only_error=False):
         return OverviewLogStats()
