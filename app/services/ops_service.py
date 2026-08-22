@@ -26,7 +26,7 @@ from app.schemas.ops_schema import (
     ProcessStateItem,
 )
 from app.services.base_service import BaseService
-from app.utils.cache import cache_get, cache_set
+from app.utils.cache import cache_get_or_build
 from app.utils.db import get_db
 from app.utils.ops_parse import (
     is_in_work_time,
@@ -209,20 +209,19 @@ class OpsService(BaseService):
         """
         target_date = date or today_yyyymmdd()
         cache_key = self._cache_key("os", group, only_error, target_date)
-        cached = cache_get(cache_key)
-        if cached is not None:
-            return [
-                OsStateItem.model_validate(item) for item in json.loads(cached)
-            ]
-        items = self._compute_os_states(
-            group=group, only_error=only_error, date=target_date
-        )
-        cache_set(
+        return cache_get_or_build(
             cache_key,
-            json.dumps([item.model_dump(mode="json") for item in items]),
-            self._cache_ttl(),
+            build=lambda: self._compute_os_states(
+                group=group, only_error=only_error, date=target_date
+            ),
+            serialize=lambda items: json.dumps(
+                [item.model_dump(mode="json") for item in items]
+            ),
+            deserialize=lambda payload: [
+                OsStateItem.model_validate(item) for item in json.loads(payload)
+            ],
+            ttl_seconds=self._cache_ttl(),
         )
-        return items
 
     def _compute_os_states(
         self,
@@ -298,23 +297,22 @@ class OpsService(BaseService):
         cache_key = self._cache_key(
             "process", group, only_error, target_date, state_only=include_state_only
         )
-        cached = cache_get(cache_key)
-        if cached is not None:
-            return [
-                ProcessStateItem.model_validate(item) for item in json.loads(cached)
-            ]
-        items = self._compute_process_states(
-            group=group,
-            only_error=only_error,
-            date=target_date,
-            include_state_only=include_state_only,
-        )
-        cache_set(
+        return cache_get_or_build(
             cache_key,
-            json.dumps([item.model_dump(mode="json") for item in items]),
-            self._cache_ttl(),
+            build=lambda: self._compute_process_states(
+                group=group,
+                only_error=only_error,
+                date=target_date,
+                include_state_only=include_state_only,
+            ),
+            serialize=lambda items: json.dumps(
+                [item.model_dump(mode="json") for item in items]
+            ),
+            deserialize=lambda payload: [
+                ProcessStateItem.model_validate(item) for item in json.loads(payload)
+            ],
+            ttl_seconds=self._cache_ttl(),
         )
-        return items
 
     def _compute_process_states(
         self,
@@ -625,14 +623,17 @@ class OpsService(BaseService):
     ) -> OverviewLogStats:
         """获取日志统计（带 Redis 旁路缓存）。"""
         cache_key = self._cache_key("log_stats", group, only_error, date)
-        cached = cache_get(cache_key)
-        if cached is not None:
-            return OverviewLogStats.model_validate(json.loads(cached))
-        stats = self._compute_log_stats(group=group, date=date, only_error=only_error)
-        cache_set(
-            cache_key, json.dumps(stats.model_dump(mode="json")), self._cache_ttl()
+        return cache_get_or_build(
+            cache_key,
+            build=lambda: self._compute_log_stats(
+                group=group, date=date, only_error=only_error
+            ),
+            serialize=lambda stats: json.dumps(stats.model_dump(mode="json")),
+            deserialize=lambda payload: OverviewLogStats.model_validate(
+                json.loads(payload)
+            ),
+            ttl_seconds=self._cache_ttl(),
         )
-        return stats
 
     def _compute_log_stats(
         self, group: str | None, date: str, only_error: bool = False

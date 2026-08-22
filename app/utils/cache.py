@@ -10,6 +10,9 @@
 """
 import logging
 import time
+from concurrent.futures import Future
+from threading import Lock
+from typing import Callable, TypeVar
 
 import redis
 
@@ -22,6 +25,10 @@ _RETRY_INTERVAL_SECONDS = 30
 _client: "redis.Redis | None" = None
 _client_environment: str | None = None
 _retry_after: float = 0.0
+
+T = TypeVar("T")
+_flights: dict[str, Future] = {}
+_flights_lock = Lock()
 
 _MONITOR_CACHE_PATTERNS = {
     "state": ("omms:os:*", "omms:process:*"),
@@ -90,6 +97,51 @@ def cache_set(key: str, value: str, ttl_seconds: int) -> None:
         client.set(key, value, ex=ttl_seconds)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Redis 写入失败，忽略缓存: %s", exc)
+
+
+def cache_get_or_build(
+    key: str,
+    *,
+    build: Callable[[], T],
+    serialize: Callable[[T], str],
+    deserialize: Callable[[str], T],
+    ttl_seconds: int,
+) -> T:
+    """读取旁路缓存；同一 key 未命中时只允许一个线程执行重建。"""
+    cached = cache_get(key)
+    if cached is not None:
+        return deserialize(cached)
+
+    with _flights_lock:
+        future = _flights.get(key)
+        if future is None:
+            future = Future()
+            _flights[key] = future
+            is_leader = True
+        else:
+            is_leader = False
+
+    if not is_leader:
+        return future.result()
+
+    try:
+        # 首次 miss 与登记 flight 之间可能已有请求完成，leader 必须二次检查。
+        cached = cache_get(key)
+        if cached is not None:
+            result = deserialize(cached)
+        else:
+            result = build()
+            cache_set(key, serialize(result), ttl_seconds)
+        future.set_result(result)
+        return result
+    except BaseException as exc:
+        # 所有等待者收到同一异常，且 finally 清理后下一次请求可重新竞选 leader。
+        future.set_exception(exc)
+        raise
+    finally:
+        with _flights_lock:
+            if _flights.get(key) is future:
+                del _flights[key]
 
 
 def invalidate_monitor_cache(kind: str | None = None) -> None:

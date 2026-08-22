@@ -7,9 +7,11 @@ monkeypatch 注入假 Redis 客户端 / 假 cache_get，验证缓存读写、
 """
 import asyncio
 import json
+from concurrent.futures import ThreadPoolExecutor
 from fnmatch import fnmatch
+from threading import Barrier, Event, Lock, get_ident
+from time import sleep
 
-import app.services.ops_service as ops_service_module
 import app.services.ws_manager as ws_manager_module
 import app.utils.cache as cache_module
 from app.schemas.ops_schema import OsStateItem, ProcessStateItem
@@ -77,6 +79,146 @@ def test_cache_get_returns_none_on_redis_failure(monkeypatch):
     assert cache_module.cache_get("k1") is None
     # 写入失败静默忽略，不影响调用方
     cache_module.cache_set("k1", "v1", ttl_seconds=3)
+
+
+def test_same_key_concurrent_misses_build_once(monkeypatch):
+    workers = 8
+    first_reads = Barrier(workers)
+    thread_reads = {}
+    reads_lock = Lock()
+    build_started = Event()
+    release_build = Event()
+    build_count = 0
+
+    def cache_miss(_key):
+        thread_id = get_ident()
+        with reads_lock:
+            read_count = thread_reads.get(thread_id, 0)
+            thread_reads[thread_id] = read_count + 1
+        if read_count == 0:
+            first_reads.wait(timeout=2)
+        return None
+
+    def build():
+        nonlocal build_count
+        build_count += 1
+        build_started.set()
+        assert release_build.wait(timeout=2)
+        return "rebuilt"
+
+    monkeypatch.setattr(cache_module, "cache_get", cache_miss)
+    monkeypatch.setattr(cache_module, "cache_set", lambda *_args: None)
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = [
+            executor.submit(
+                cache_module.cache_get_or_build,
+                "same-key",
+                build=build,
+                serialize=str,
+                deserialize=str,
+                ttl_seconds=3,
+            )
+            for _ in range(workers)
+        ]
+        assert build_started.wait(timeout=2)
+        sleep(0.05)
+        release_build.set()
+        assert [future.result(timeout=2) for future in futures] == [
+            "rebuilt"
+        ] * workers
+
+    assert build_count == 1
+
+
+def test_different_keys_rebuild_in_parallel(monkeypatch):
+    both_building = Barrier(2)
+    monkeypatch.setattr(cache_module, "cache_get", lambda _key: None)
+    monkeypatch.setattr(cache_module, "cache_set", lambda *_args: None)
+
+    def build(value):
+        both_building.wait(timeout=2)
+        return value
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(
+                cache_module.cache_get_or_build,
+                key,
+                build=lambda value=key: build(value),
+                serialize=str,
+                deserialize=str,
+                ttl_seconds=3,
+            )
+            for key in ("key-a", "key-b")
+        ]
+        assert {future.result(timeout=2) for future in futures} == {
+            "key-a",
+            "key-b",
+        }
+
+
+def test_leader_exception_releases_waiters_and_allows_retry(monkeypatch):
+    workers = 6
+    first_reads = Barrier(workers)
+    thread_reads = {}
+    reads_lock = Lock()
+    release_build = Event()
+    build_started = Event()
+    attempts = 0
+
+    def cache_miss(_key):
+        thread_id = get_ident()
+        with reads_lock:
+            read_count = thread_reads.get(thread_id, 0)
+            thread_reads[thread_id] = read_count + 1
+        if read_count == 0:
+            first_reads.wait(timeout=2)
+        return None
+
+    def failing_build():
+        nonlocal attempts
+        attempts += 1
+        build_started.set()
+        assert release_build.wait(timeout=2)
+        raise RuntimeError("rebuild failed")
+
+    monkeypatch.setattr(cache_module, "cache_get", cache_miss)
+    monkeypatch.setattr(cache_module, "cache_set", lambda *_args: None)
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = [
+            executor.submit(
+                cache_module.cache_get_or_build,
+                "failing-key",
+                build=failing_build,
+                serialize=str,
+                deserialize=str,
+                ttl_seconds=3,
+            )
+            for _ in range(workers)
+        ]
+        assert build_started.wait(timeout=2)
+        sleep(0.05)
+        release_build.set()
+        for future in futures:
+            try:
+                future.result(timeout=2)
+            except RuntimeError as exc:
+                assert str(exc) == "rebuild failed"
+            else:
+                raise AssertionError("waiter should receive leader exception")
+
+    monkeypatch.setattr(cache_module, "cache_get", lambda _key: None)
+    result = cache_module.cache_get_or_build(
+        "failing-key",
+        build=lambda: "retry-ok",
+        serialize=str,
+        deserialize=str,
+        ttl_seconds=3,
+    )
+    assert result == "retry-ok"
+    assert attempts == 1
 
 
 def test_state_mutation_invalidates_only_related_monitor_cache(monkeypatch):
@@ -172,7 +314,7 @@ def test_os_states_return_cached_items_without_db_access(monkeypatch):
     payload = json.dumps([item.model_dump(mode="json")])
     hits = []
     monkeypatch.setattr(
-        ops_service_module, "cache_get", lambda key: hits.append(key) or payload
+        cache_module, "cache_get", lambda key: hits.append(key) or payload
     )
     service = FakeOpsService(cfgs=[], states=[])  # 缓存命中时不应访问 db 数据
     result = service.get_os_states(group=None, date="20260729")
@@ -183,9 +325,9 @@ def test_os_states_return_cached_items_without_db_access(monkeypatch):
 
 def test_os_states_fallback_to_db_when_cache_misses(monkeypatch):
     written = []
-    monkeypatch.setattr(ops_service_module, "cache_get", lambda key: None)
+    monkeypatch.setattr(cache_module, "cache_get", lambda key: None)
     monkeypatch.setattr(
-        ops_service_module, "cache_set", lambda key, value, ttl: written.append(key)
+        cache_module, "cache_set", lambda key, value, ttl: written.append(key)
     )
     service = make_service()
     result = service.get_os_states(group=None, date="20260729")
@@ -207,7 +349,7 @@ def test_process_states_use_cache_and_state_only_key(monkeypatch):
     payload = json.dumps([item.model_dump(mode="json")])
     keys = []
     monkeypatch.setattr(
-        ops_service_module, "cache_get", lambda key: keys.append(key) or payload
+        cache_module, "cache_get", lambda key: keys.append(key) or payload
     )
     service = FakeOpsService(cfgs=[], states=[])
     result = service.get_process_states(
