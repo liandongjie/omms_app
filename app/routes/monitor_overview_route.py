@@ -9,6 +9,7 @@ from app.schemas.common import ResponseModel
 from app.schemas.monitor_overview_schema import (
     MonitorOverviewLogListRequest,
     MonitorOverviewOsListRequest,
+    MonitorOverviewOsSnapshotRequest,
     MonitorOverviewProcessListRequest,
 )
 
@@ -35,6 +36,14 @@ def post_monitor_overview_os_list(
     controller: MonitorOverviewController = Depends(get_monitor_overview_controller),
 ):
     return ResponseModel(data=controller.get_os_list(request), msg="success")
+
+
+@router.post("/api_omms/monitor/overview/os/snapshot", response_model=ResponseModel)
+def post_monitor_overview_os_snapshot(
+    request: MonitorOverviewOsSnapshotRequest | None = Body(default=None),
+    controller: MonitorOverviewController = Depends(get_monitor_overview_controller),
+):
+    return ResponseModel(data=controller.get_os_snapshot(request), msg="success")
 
 
 @router.post("/api_omms/monitor/overview/process/list", response_model=ResponseModel)

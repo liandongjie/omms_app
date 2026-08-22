@@ -150,7 +150,7 @@ import { message } from 'ant-design-vue';
 import {
   fetchMonitorGroupList,
   fetchOverviewLogList,
-  fetchOverviewOsList,
+  fetchOverviewOsSnapshot,
   fetchOverviewProcessList,
   fetchOverviewTotal,
   type LogListParams,
@@ -247,6 +247,10 @@ const baseListParams: Omit<MonitorListParams, 'group'> = {
   page_size: 100,
   sort_by: '',
   sort_order: '',
+};
+const baseSortParams = {
+  sort_by: baseListParams.sort_by,
+  sort_order: baseListParams.sort_order,
 };
 
 const visibleOsRows = computed(() =>
@@ -457,34 +461,11 @@ async function loadOverviewTotal() {
 async function loadOsRows(group: string) {
   osLoading.value = true;
   try {
-    const firstPage = await fetchOverviewOsList({ ...baseListParams, group });
-    const firstRows = normalizeRows(firstPage);
+    const snapshot = await fetchOverviewOsSnapshot({ ...baseSortParams, group });
+    const uniqueRows = dedupeOsRows(normalizeRows(snapshot));
+    const total = Array.isArray(snapshot) ? uniqueRows.length : Number(snapshot.total ?? uniqueRows.length);
 
-    if (Array.isArray(firstPage)) {
-      osRows.value = dedupeOsRows(firstRows);
-      return;
-    }
-
-    const total = Math.max(0, Number(firstPage.total ?? firstRows.length));
-    const pageSize = Math.max(1, Number(firstPage.page_size ?? baseListParams.page_size));
-    const pageCount = Math.ceil(total / pageSize);
-
-    // OS 表格不展示分页控件，因此根据 total 拉取全部页，避免
-    // state-only OS 被固定第一页截断。Promise.all 保持请求数组的页码顺序。
-    const remainingPages = await Promise.all(
-      Array.from({ length: Math.max(0, pageCount - 1) }, (_, index) =>
-        fetchOverviewOsList({
-          ...baseListParams,
-          group,
-          page_no: index + 2,
-          page_size: pageSize,
-        }),
-      ),
-    );
-    const allRows = [firstRows, ...remainingPages.map((page) => normalizeRows(page))].flat();
-    const uniqueRows = dedupeOsRows(allRows);
-
-    // 任一后续页失败会直接 reject；数量不足也报错，不用不完整结果替换当前列表。
+    // snapshot 必须完整返回可见集合；数量不足时保留当前列表，避免静默截断。
     if (uniqueRows.length < total) {
       throw new Error(`OS 状态列表加载不完整：预期 ${total} 条，实际 ${uniqueRows.length} 条`);
     }

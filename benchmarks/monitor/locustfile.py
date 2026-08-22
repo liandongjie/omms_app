@@ -10,13 +10,13 @@ from locust import HttpUser, between, task
 from benchmarks.monitor.workload import (
     GROUP_PATH,
     LOG_LIST_PATH,
-    OS_LIST_PATH,
+    OS_SNAPSHOT_PATH,
     PROCESS_LIST_PATH,
     TOTAL_PATH,
     list_payload,
     log_payload,
-    os_page_count,
     response_data,
+    snapshot_payload,
 )
 
 
@@ -68,25 +68,13 @@ class MonitorDashboardUser(HttpUser):
     def _total(self):
         self._request("GET", TOTAL_PATH, name="GET total")
 
-    def _os_list(self):
-        first = self._request(
+    def _os_snapshot(self):
+        self._request(
             "POST",
-            OS_LIST_PATH,
-            name="POST os list",
-            json=list_payload(),
+            OS_SNAPSHOT_PATH,
+            name="POST os snapshot",
+            json=snapshot_payload(),
         )
-        page_count = os_page_count(first)
-        jobs = [
-            gevent.spawn(
-                self._request,
-                "POST",
-                OS_LIST_PATH,
-                name="POST os list",
-                json=list_payload(page_no=page_no),
-            )
-            for page_no in range(2, page_count + 1)
-        ]
-        gevent.joinall(jobs)
 
     def _process_list(self):
         self._request(
@@ -110,7 +98,7 @@ class MonitorDashboardUser(HttpUser):
         gevent.joinall(
             [
                 gevent.spawn(self._total),
-                gevent.spawn(self._os_list),
+                gevent.spawn(self._os_snapshot),
                 gevent.spawn(self._process_list),
                 gevent.spawn(self._log_list),
             ]

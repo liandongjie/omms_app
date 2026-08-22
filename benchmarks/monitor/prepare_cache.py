@@ -11,12 +11,13 @@ import redis
 
 from benchmarks.monitor.workload import (
     LOG_LIST_PATH,
-    OS_LIST_PATH,
+    OS_SNAPSHOT_PATH,
     PROCESS_LIST_PATH,
     TOTAL_PATH,
     list_payload,
     log_payload,
     response_data,
+    snapshot_payload,
 )
 
 
@@ -58,7 +59,7 @@ def main():
 
     if args.mode == "warm":
         request_json(args.host, "GET", TOTAL_PATH)
-        request_json(args.host, "POST", OS_LIST_PATH, list_payload())
+        request_json(args.host, "POST", OS_SNAPSHOT_PATH, snapshot_payload())
         request_json(args.host, "POST", PROCESS_LIST_PATH, list_payload())
         request_json(args.host, "POST", LOG_LIST_PATH, log_payload(date=args.date))
         print("warm_cache_preload=complete")

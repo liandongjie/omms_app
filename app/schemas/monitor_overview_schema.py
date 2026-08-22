@@ -92,6 +92,19 @@ class MonitorOverviewOsListResponse(BaseModel):
     details: list[MonitorOverviewOsItem]
 
 
+class MonitorOverviewOsSnapshotRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    group: str | None = ""
+    sort_by: MonitorOverviewSortBy | None = ""
+    sort_order: MonitorOverviewSortOrder | None = ""
+
+
+class MonitorOverviewOsSnapshotResponse(BaseModel):
+    total: int
+    details: list[MonitorOverviewOsItem]
+
+
 class MonitorOverviewProcessItem(BaseModel):
     machine_tag: str
     group: str | None = None

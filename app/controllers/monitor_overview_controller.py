@@ -13,6 +13,8 @@ from app.schemas.monitor_overview_schema import (
     MonitorOverviewOsItem,
     MonitorOverviewOsListRequest,
     MonitorOverviewOsListResponse,
+    MonitorOverviewOsSnapshotRequest,
+    MonitorOverviewOsSnapshotResponse,
     MonitorOverviewProcessItem,
     MonitorOverviewProcessListRequest,
     MonitorOverviewProcessListResponse,
@@ -149,15 +151,7 @@ class MonitorOverviewController(BaseController):
         request = request or MonitorOverviewOsListRequest()
         page_no = self._normalize_page_no(request.page_no)
         page_size = self._normalize_page_size(request.page_size)
-        group = normalize_monitor_group(request.group)
-
-        # OS 数据先完成领域状态判定，再转换、排序并按兼容接口的页码切片。
-        items = [
-            self._to_monitor_os_item(item)
-            for item in self.ops_service.get_os_states(group=group)
-        ]
-        # 按请求字段排序；未指定字段时使用异常优先的默认顺序。
-        items = self._sort_os_items(items, request.sort_by or "", request.sort_order or "")
+        items = self._get_sorted_os_items(request.group, request.sort_by, request.sort_order)
 
         # 在转换和排序后的完整列表上计算总数，再截取当前页。
         total = len(items)
@@ -169,6 +163,30 @@ class MonitorOverviewController(BaseController):
             total=total,
             details=items[start:end],
         )
+
+    def get_os_snapshot(
+        self,
+        request: MonitorOverviewOsSnapshotRequest | None = None,
+    ) -> MonitorOverviewOsSnapshotResponse:
+        """一次返回页面展示所需的完整 OS 状态快照。"""
+        request = request or MonitorOverviewOsSnapshotRequest()
+        items = self._get_sorted_os_items(request.group, request.sort_by, request.sort_order)
+        return MonitorOverviewOsSnapshotResponse(total=len(items), details=items)
+
+    def _get_sorted_os_items(
+        self,
+        group: str | None,
+        sort_by: str | None,
+        sort_order: str | None,
+    ) -> list[MonitorOverviewOsItem]:
+        """按列表接口既有口径转换并排序完整 OS 集合。"""
+        normalized_group = normalize_monitor_group(group)
+        items = [
+            self._to_monitor_os_item(item)
+            for item in self.ops_service.get_os_states(group=normalized_group)
+        ]
+        # snapshot 与分页接口共用此路径，避免状态、分组或默认排序语义分叉。
+        return self._sort_os_items(items, sort_by or "", sort_order or "")
 
     def get_process_list(
         self,
