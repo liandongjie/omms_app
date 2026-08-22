@@ -10,6 +10,7 @@ class OpsLog(Base):
     __tablename__ = "ops_log"
 
     log_id = Column(BigInteger, primary_key=True, autoincrement=True, index=True)
+    event_id = Column(String(64), nullable=True, unique=True)
     date = Column(String(16), nullable=True)
     machine_tag = Column(String(32), nullable=True, index=True)
     log_name = Column(String(255), nullable=True)

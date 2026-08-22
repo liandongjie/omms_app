@@ -5,6 +5,7 @@
 
 CREATE TABLE IF NOT EXISTS `ops_log` (
   `log_id`      BIGINT       NOT NULL AUTO_INCREMENT,
+  `event_id`    VARCHAR(64) COLLATE utf8mb4_bin,
   `date`        VARCHAR(16),
   `machine_tag` VARCHAR(32),
   `log_name`    VARCHAR(255),
@@ -12,6 +13,7 @@ CREATE TABLE IF NOT EXISTS `ops_log` (
   `log`         TEXT,
   `update_time` VARCHAR(32),
   PRIMARY KEY (`log_id`),
+  UNIQUE KEY `uq_ops_log_event_id` (`event_id`),
   KEY `idx_ops_log_machine_tag` (`machine_tag`),
   KEY `idx_ops_log_level` (`level`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
