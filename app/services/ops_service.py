@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # 导入依赖
+import json
 import logging
 from collections import Counter, OrderedDict
 from datetime import datetime, time
@@ -25,6 +26,7 @@ from app.schemas.ops_schema import (
     ProcessStateItem,
 )
 from app.services.base_service import BaseService
+from app.utils.cache import cache_get, cache_set
 from app.utils.db import get_db
 from app.utils.ops_parse import (
     is_in_work_time,
@@ -114,6 +116,30 @@ class OpsService(BaseService):
     def _now(self) -> datetime:
         return datetime.now()
 
+    def _cache_ttl(self) -> int:
+        """缓存过期秒数；小于前端 5 秒轮询周期，保证缓存不比原轮询更旧。"""
+        return int(getattr(self.settings, "OPS_CACHE_TTL_SECONDS", 3))
+
+    def _cache_key(
+        self,
+        prefix: str,
+        group: str | None,
+        only_error: bool,
+        date: str,
+        **extra: bool,
+    ) -> str:
+        """构造领域结果缓存键。
+
+        分组统一归一化为 ``all``（与服务层 _is_all_group 口径一致），
+        only_error 及额外布尔口径（如进程的 include_state_only）参与键拼接，
+        避免不同筛选口径互相串缓存。
+        """
+        group_key = "all" if self._is_all_group(group) else str(group).strip()
+        parts = [prefix, date, group_key, f"error={int(bool(only_error))}"]
+        for key in sorted(extra):
+            parts.append(f"{key}={int(bool(extra[key]))}")
+        return "omms:" + ":".join(parts)
+
     def get_overview(
         self,
         group: str | None = None,
@@ -176,17 +202,35 @@ class OpsService(BaseService):
         only_error: bool = False,
         date: str | None = None,
     ) -> list[OsStateItem]:
-        """
-        获取操作系统监控状态列表
+        """获取 OS 状态列表（带 Redis 旁路缓存）。
 
-        Args:
-            group: 分组名称，为 None、空字符串或 "all" 时表示查询全部分组
-            only_error: 是否仅返回异常状态的 OS，默认 False 返回所有状态
-            date: 查询日期，格式为 YYYYMMDD，默认使用当天日期
-
-        Returns:
-            操作系统状态项列表，每个项包含主机标签、分组、资源使用率等信息
+        缓存键覆盖日期、分组与 only_error 口径；Redis 不可用时 cache_get
+        返回 None，自动回退到 _compute_os_states 直查数据库。
         """
+        target_date = date or today_yyyymmdd()
+        cache_key = self._cache_key("os", group, only_error, target_date)
+        cached = cache_get(cache_key)
+        if cached is not None:
+            return [
+                OsStateItem.model_validate(item) for item in json.loads(cached)
+            ]
+        items = self._compute_os_states(
+            group=group, only_error=only_error, date=target_date
+        )
+        cache_set(
+            cache_key,
+            json.dumps([item.model_dump(mode="json") for item in items]),
+            self._cache_ttl(),
+        )
+        return items
+
+    def _compute_os_states(
+        self,
+        group: str | None = None,
+        only_error: bool = False,
+        date: str | None = None,
+    ) -> list[OsStateItem]:
+        """不带缓存的计算实现（供缓存回退与单元测试直接调用）。"""
         # 确定目标日期，默认使用当天
         target_date = date or today_yyyymmdd()
         # state-only OS 没有分组，只能在“全部”口径下补充。
@@ -244,18 +288,42 @@ class OpsService(BaseService):
         date: str | None = None,
         include_state_only: bool = False,
     ) -> list[ProcessStateItem]:
-        """
-        获取进程监控状态列表
+        """获取进程状态列表（带 Redis 旁路缓存）。
 
-        Args:
-            group: 分组名称，为 None、空字符串或 "all" 时表示查询全部分组
-            only_error: 是否仅返回异常状态的进程，默认 False 返回所有状态
-            date: 查询日期，格式为 YYYYMMDD，默认使用当天日期
-            include_state_only: 是否包含只有状态记录但无对应配置的进程，仅在全部分组查询时生效
-
-        Returns:
-            进程状态项列表，每个项包含进程配置信息和对应的监控状态
+        include_state_only 参与缓存键，避免“总览不含 state-only、列表含
+        state-only”两种口径互相串缓存。
         """
+        now = self._now()
+        target_date = date or today_yyyymmdd(now)
+        cache_key = self._cache_key(
+            "process", group, only_error, target_date, state_only=include_state_only
+        )
+        cached = cache_get(cache_key)
+        if cached is not None:
+            return [
+                ProcessStateItem.model_validate(item) for item in json.loads(cached)
+            ]
+        items = self._compute_process_states(
+            group=group,
+            only_error=only_error,
+            date=target_date,
+            include_state_only=include_state_only,
+        )
+        cache_set(
+            cache_key,
+            json.dumps([item.model_dump(mode="json") for item in items]),
+            self._cache_ttl(),
+        )
+        return items
+
+    def _compute_process_states(
+        self,
+        group: str | None = None,
+        only_error: bool = False,
+        date: str | None = None,
+        include_state_only: bool = False,
+    ) -> list[ProcessStateItem]:
+        """不带缓存的计算实现（供缓存回退与单元测试直接调用）。"""
         now = self._now()
         # 确定目标日期，默认使用本次请求统一时钟对应的当天。
         target_date = date or today_yyyymmdd(now)
@@ -554,6 +622,21 @@ class OpsService(BaseService):
     def _get_log_stats(
         self, group: str | None, date: str, only_error: bool = False
     ) -> OverviewLogStats:
+        """获取日志统计（带 Redis 旁路缓存）。"""
+        cache_key = self._cache_key("log_stats", group, only_error, date)
+        cached = cache_get(cache_key)
+        if cached is not None:
+            return OverviewLogStats.model_validate(json.loads(cached))
+        stats = self._compute_log_stats(group=group, date=date, only_error=only_error)
+        cache_set(
+            cache_key, json.dumps(stats.model_dump(mode="json")), self._cache_ttl()
+        )
+        return stats
+
+    def _compute_log_stats(
+        self, group: str | None, date: str, only_error: bool = False
+    ) -> OverviewLogStats:
+        """不带缓存的计算实现（供缓存回退与单元测试直接调用）。"""
         # 与日志列表保持相同的分组口径：先由配置确定该组包含的机器。
         machine_tags = self._get_group_machine_tags(group) if group else None
         query = self.db.query(OpsLog.level).filter(OpsLog.date == date)

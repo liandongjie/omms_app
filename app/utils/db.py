@@ -1,4 +1,5 @@
 import logging
+import os
 from urllib.parse import quote_plus
 
 from sqlalchemy import create_engine
@@ -13,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 # 获取数据库配置
 settings = get_settings()
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
 
 
 def build_mysql_url(s) -> str:
@@ -83,9 +85,16 @@ def _log_pool_config():
     )
 
 
+def _create_environment_engine():
+    # 缓存/consumer 单测不依赖外部 MySQL，避免 Redis 降级测试被数据库环境阻断。
+    if ENVIRONMENT == "testing":
+        return create_engine("sqlite:///:memory:", poolclass=NullPool)
+    return create_db_engine()
+
+
 # 创建数据库引擎
 try:
-    engine = create_db_engine()
+    engine = _create_environment_engine()
 except SQLAlchemyError:
     # 连接失败时使用空池作为后备方案
     logger.warning("使用空连接池作为后备方案")
