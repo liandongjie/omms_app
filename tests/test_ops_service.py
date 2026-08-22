@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 import app.services.ops_service as ops_service_module
@@ -1544,7 +1544,7 @@ def seed_log_rows(db):
     db.add_all([
         log_row(1, machine_tag="m1", level="info"),
         log_row(2, machine_tag="m1", level="warn"),
-        log_row(3, machine_tag="m2", level="ERROR"),
+        log_row(3, machine_tag="m2", level="error"),
         log_row(4, date="20260707", machine_tag="m1", level="error"),
     ])
     db.commit()
@@ -1576,12 +1576,40 @@ def test_get_logs_only_error_and_level_filters_are_case_insensitive():
 
     only_error = service.get_logs(only_error=True)
     info = service.get_logs(level="info")
-    error = service.get_logs(level="ERROR")
+    error = service.get_logs(level=" ErRoR ")
 
     assert [item.log_id for item in only_error.items] == [3, 2]
     assert [item.log_id for item in info.items] == [1]
     assert [item.log_id for item in error.items] == [3]
     assert error.items[0].level == "error"
+
+
+def test_get_logs_level_filter_uses_direct_comparison_without_lower():
+    service, db = make_log_service()
+    seed_log_rows(db)
+    statements = []
+    event.listen(
+        db.bind,
+        "before_cursor_execute",
+        lambda _conn, _cursor, statement, _parameters, _context, _many: statements.append(statement),
+    )
+
+    service.get_logs(level="ERROR")
+
+    level_statements = [statement.lower() for statement in statements if "ops_log.level" in statement]
+    assert level_statements
+    assert all("lower(ops_log.level)" not in statement for statement in level_statements)
+    assert any("ops_log.level =" in statement for statement in level_statements)
+
+
+def test_ops_log_declares_date_level_log_id_index():
+    index = next(
+        item
+        for item in OpsLog.__table__.indexes
+        if item.name == "idx_ops_log_date_level_log_id"
+    )
+
+    assert [column.name for column in index.columns] == ["date", "level", "log_id"]
 
 
 def test_get_logs_group_filters_by_ops_cfg_machine_tags():

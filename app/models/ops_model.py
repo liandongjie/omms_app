@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from sqlalchemy import BigInteger, Column, Integer, String, Text
+from sqlalchemy import BigInteger, Column, Index, Integer, String, Text
 
 from app.models.database import Base
 
@@ -8,6 +8,11 @@ class OpsLog(Base):
     """Ops log records, append-only."""
 
     __tablename__ = "ops_log"
+
+    __table_args__ = (
+        # 连续覆盖按日期和级别筛选，并支持单级别下按 log_id 倒序分页。
+        Index("idx_ops_log_date_level_log_id", "date", "level", "log_id"),
+    )
 
     log_id = Column(BigInteger, primary_key=True, autoincrement=True, index=True)
     event_id = Column(String(64), nullable=True, unique=True)

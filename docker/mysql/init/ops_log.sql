@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS `ops_log` (
   PRIMARY KEY (`log_id`),
   UNIQUE KEY `uq_ops_log_event_id` (`event_id`),
   KEY `idx_ops_log_machine_tag` (`machine_tag`),
-  KEY `idx_ops_log_level` (`level`)
+  KEY `idx_ops_log_level` (`level`),
+  KEY `idx_ops_log_date_level_log_id` (`date`, `level`, `log_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 脱敏日志：机器标签和日志路径均为示例值

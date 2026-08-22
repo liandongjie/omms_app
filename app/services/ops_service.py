@@ -451,10 +451,11 @@ class OpsService(BaseService):
 
         normalized_level = (level or "").strip().lower()
         # 显式 level 比“仅异常”更具体；两者同时传入时只按指定级别过滤。
+        # level 列使用大小写不敏感排序规则，直接比较可保留语义并允许索引定位。
         if normalized_level:
-            query = query.filter(func.lower(OpsLog.level) == normalized_level)
+            query = query.filter(OpsLog.level == normalized_level)
         elif only_error:
-            query = query.filter(func.lower(OpsLog.level).in_(LOG_ALARM_LEVELS))
+            query = query.filter(OpsLog.level.in_(LOG_ALARM_LEVELS))
 
         if machine_tags is not None:
             if not machine_tags:
