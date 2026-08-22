@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "base_git_sha": "5c71c94dd93eb41aa8409f6eda3c10488c686c26",
+  "source_patch": "docs/performance-baseline-2026-08-22-source.patch.b64",
+  "source_patch_encoding": "base64",
+  "source_patch_sha256": "3147fc6fa63e75b736ec3bec4ca5bf1e6c0e5d0d52bd5e7b650e7b23a7e3829b",
+  "decoded_patch_sha256": "43e7277b251bf5be7fae43a9a7ddd31939ddbc4f783d08b4f77d62b239bc2a7c",
+  "source_fingerprint_sha256": "185fa513191569b05500dcd2bf380cd7563c31f83db00c4709388bafee38f13e",
+  "reconstruct": [
+    "PowerShell: read source.patch.b64 into memory",
+    "git checkout 5c71c94dd93eb41aa8409f6eda3c10488c686c26",
+    "PowerShell: decode the in-memory Base64 to before.patch",
+    "git apply before.patch"
+  ],
+  "validation": {
+    "reverse_apply_check": true,
+    "clean_checkout_apply_check": true,
+    "all_git_blob_ids_match": true
+  },
+  "patched_file_git_blobs": {
+    ".env.development.example": "b36e069796b9bdde9367dfdf66158fcafb185a85",
+    ".env.docker.example": "a584bf4231fec5b2b2c49b3638ba2e62e5e5b1bc",
+    ".env.production.example": "607784db072dcb766ba827975a56eaccd4b804d1",
+    ".env.testing.example": "0c4fbd56c98a59b3185841b812e42b3d99b6e92b",
+    "README.md": "59220b1c2296d91d804f0d2578884eaab2bc48d4",
+    "app/config/base.py": "18a6c6ebac91f49050e2cbbc51bb497378d7bb57",
+    "app/main.py": "7b0300dcac4918a1e2d3b4aa26fc7f08f75ecc27",
+    "app/models/ops_model.py": "8aaf46c7acb0c85d68c0dae20ad5d3864de414b0",
+    "app/services/ops_service.py": "6548b0ffe545423d27d52901bd7b314f9443d439",
+    "app/utils/db.py": "57836b89d4cfb2394afe07ba63bb5ac871bcd1cb",
+    "docker-compose.yml": "19521a6f43818f1199b2d0055a33d3b096a579eb",
+    "docker/mysql/init/ops_cfg.sql": "36b68950cc7c14b5f2b039d55b04f86d498a202b",
+    "docker/mysql/init/ops_log.sql": "f21b14b431324df9ba28cdc3653cabbf5bbf121b",
+    "docs/api_omms_monitor_overview.md": "a6a96ca40cc2d1d14d4be51926f696f246587664",
+    "docs/project-baseline.md": "f902d7311993b56107fcca572a02f4c6925d3df1",
+    "frontend/vite.config.ts": "e94b0a8bddcd21c4258c85c2cdd0b259cad1226b",
+    "tests/test_ops_service.py": "4d83fb1af36f9231f6ad388d0456fed691a346b7",
+    "app/routes/ws_route.py": "a462096b495aeb313de19132f02fbd9d0dbb375b",
+    "tests/test_system_endpoints.py": "ad73e47ec87e82c8536a3fd62a036a7f1d5ed11b",
+    "tests/test_websocket.py": "38d149ec4e2209fdd289baecfe245c76db3c0ead"
+  },
+  "notes": [
+    "Baseline evidence files are not part of the source patch.",
+    "Runtime DB/Redis/RabbitMQ values are recorded by the benchmark environment snapshot; secret .env files are excluded."
+  ]
+}

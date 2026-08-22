@@ -1,0 +1,59 @@
+{
+  "captured_at_utc": "2026-08-22",
+  "source": {
+    "base_git_sha": "5c71c94dd93eb41aa8409f6eda3c10488c686c26",
+    "fingerprint_sha256": "185fa513191569b05500dcd2bf380cd7563c31f83db00c4709388bafee38f13e",
+    "encoded_patch_sha256": "3147fc6fa63e75b736ec3bec4ca5bf1e6c0e5d0d52bd5e7b650e7b23a7e3829b",
+    "decoded_patch_sha256": "43e7277b251bf5be7fae43a9a7ddd31939ddbc4f783d08b4f77d62b239bc2a7c"
+  },
+  "system": {
+    "platform": "Windows-10-10.0.26200-SP0",
+    "logical_cpu_count": 24,
+    "python": "3.11.15",
+    "locust": "2.46.3"
+  },
+  "backend": {
+    "workers": 1,
+    "sqlalchemy_pool_size": 10,
+    "sqlalchemy_max_overflow": 30,
+    "sqlalchemy_pool_timeout_seconds": 30
+  },
+  "mysql": {
+    "version": "8.0.46",
+    "rows": {
+      "ops_cfg": 8000,
+      "ops_state": 6009,
+      "ops_log": 125260
+    },
+    "indexes": {
+      "ops_cfg": ["idx_ops_cfg_type_status_group(type,status,group)"],
+      "ops_state": ["PRIMARY(date,type,machine_tag,key,value)"],
+      "ops_log": [
+        "PRIMARY(log_id)",
+        "uq_ops_log_event_id(event_id)",
+        "idx_ops_log_date_level_log_id(date,level,log_id)",
+        "idx_ops_log_date_machine_level(date,machine_tag,level,log_id)",
+        "idx_ops_log_level(level)",
+        "idx_ops_log_machine_tag(machine_tag)"
+      ]
+    }
+  },
+  "redis": {
+    "version": "7.4.9",
+    "maxmemory": 0,
+    "maxmemory_policy": "noeviction"
+  },
+  "workload": {
+    "users": [1, 10, 25],
+    "spawn_rate_per_second": 5,
+    "fallback_wait_seconds": [4.5, 5.5],
+    "steady_wait_seconds": [29.5, 30.5],
+    "warm_ttl_seconds": 300,
+    "expiry_ttl_seconds": 3,
+    "fallback_duration_seconds": 120,
+    "steady_duration_seconds": 180,
+    "machine_tag": "fut-col-002",
+    "level": "error"
+  },
+  "runner_sha256": "acfb502ada740ecc1f9464aa1a10d5a041ac5e0687ec7eead754561e87b05deb"
+}
