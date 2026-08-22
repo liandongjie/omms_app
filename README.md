@@ -214,6 +214,16 @@ http://192.168.1.23:5173/
 - `5173` 和 `8004` 端口是否被其他进程占用；
 - 前端所在电脑是否能够访问本机后端 `127.0.0.1:8004`。
 
+## 数据生成与模拟生产者
+
+```powershell
+# 生成 5 万状态 + 5 万日志 + 50 台机器的压测基线（清空重建，可重复执行）
+.\.venv\Scripts\python.exe -m scripts.generate_data --states 50000 --logs 50000 --machines 50 --truncate
+
+# 模拟上游生产者：向 RabbitMQ 发布消息
+.\.venv\Scripts\python.exe -m scripts.mq_producer --count 1000 --rate 20
+```
+
 ## 测试与构建
 
 ### 后端测试
